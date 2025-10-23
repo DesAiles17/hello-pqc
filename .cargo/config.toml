@@ -1,0 +1,16 @@
+# Cargo per-project configuration
+# Ensures linking finds Homebrew's OpenSSL on macOS (Apple Silicon)
+
+[target.aarch64-apple-darwin]
+# Add OpenSSL lib path and embed rpath so the binary can find libcrypto at runtime
+rustflags = [
+    "-C",
+    "link-arg=-L/opt/homebrew/opt/openssl@3/lib",
+    "-C",
+    "link-arg=-Wl,-rpath,/opt/homebrew/opt/openssl@3/lib",
+]
+
+[env]
+# Help build scripts and pkg-config locate headers and libs
+OPENSSL_DIR = { value = "/opt/homebrew/opt/openssl@3", force = true }
+PKG_CONFIG_PATH = { value = "/opt/homebrew/opt/openssl@3/lib/pkgconfig", force = true }

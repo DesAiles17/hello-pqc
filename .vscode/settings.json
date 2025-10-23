@@ -1,0 +1,8 @@
+{
+    // Make sure VS Code integrated terminal inherits envs for this workspace
+    "terminal.integrated.env.osx": {
+        "OPENSSL_DIR": "/opt/homebrew/opt/openssl@3",
+        "PKG_CONFIG_PATH": "/opt/homebrew/opt/openssl@3/lib/pkgconfig"
+    },
+    "dependi.rust.lockFileEnabled": false
+}
