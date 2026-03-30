@@ -1,0 +1,1639 @@
+================================================================================
+POST-QUANTUM CRYPTOGRAPHY SIGNING SYSTEM
+Technical Architecture Specification
+================================================================================
+
+Project Type: Honours Dissertation Research Prototype
+Purpose: Measurable comparison of cryptographic signing approaches
+Version: 1.0
+Date: February 2026
+
+================================================================================
+SECTION 1: SYSTEM OVERVIEW
+================================================================================
+
+1.1 Project Purpose and Scope
+------------------------------
+This system is a research prototype designed to provide defensible empirical
+evidence for performance trade-offs between classical, post-quantum, and hybrid
+cryptographic signing approaches. It is explicitly scoped as an academic
+instrument, not a production-ready enterprise system.
+
+Core research objectives:
+  - Measure and compare performance characteristics of:
+    * Classical: RSA-4096 + SHA-256
+    * Post-Quantum: Dilithium3 + Keccak-256
+    * Hybrid: RSA-4096 + Dilithium3 (independent parallel execution)
+  
+  - Generate reproducible performance metrics including:
+    * Stage-level cryptographic operation timings
+    * Signature and manifest size overhead
+    * End-to-end processing latency distributions
+  
+  - Provide migration guidance based on quantitative evidence
+
+Explicitly out of scope:
+  - Enterprise hardening for production deployment
+  - Horizontal scaling and distributed system studies
+  - User experience polish unrelated to measurement validity
+
+1.2 Core Design Goals
+---------------------
+Performance: Achieve sub-second end-to-end signing for files up to 10MB under
+            controlled conditions while maintaining independent measurement of
+            each cryptographic stage.
+
+Security: Implement cryptographic operations exclusively on backend services
+         with robust input validation, path sanitization, and authentication
+         to prevent common vulnerability classes (path traversal, injection,
+         privilege escalation, TOCTOU).
+
+Modularity: Separate concerns into independently deployable microservices with
+           clear service boundaries, enabling targeted performance profiling
+           and future extensibility.
+
+Reproducibility: Ensure deterministic manifest generation, timestamp-controlled
+                verification, and structured metric export to enable statistical
+                validation and academic peer review.
+
+Measurability: Instrument all cryptographic operations with nanosecond-precision
+              timing, ensuring metrics are attributable by algorithm and profile
+              without cross-contamination.
+
+1.3 High-Level Architectural Style
+-----------------------------------
+Architectural Pattern: Backend-oriented microservices with stateless API gateway
+
+The system adopts a microservices architecture with the following characteristics:
+
+  - Service decomposition by cryptographic responsibility (hashing vs signing)
+  - Synchronous REST communication for request/response flows
+  - Shared persistent storage (PostgreSQL for manifests, MinIO for objects)
+  - Stateless services enabling horizontal scaling (though not required for
+    academic prototype scope)
+  - Clear trust boundaries with explicit authentication at all service ingress
+    points
+
+This architecture specifically avoids monolithic designs to ensure cryptographic
+stage timings remain independently observable without interference from unrelated
+system operations.
+
+
+================================================================================
+SECTION 2: ARCHITECTURAL DESIGN
+================================================================================
+
+2.1 Component Breakdown
+------------------------
+
+2.1.1 API Gateway (Port 3000)
+Service Role: Orchestration, authentication, rate limiting, request routing
+Technology: Rust + Axum web framework
+Key Capabilities:
+  - API key authentication with role-based access control (Admin, Operator, ReadOnly)
+  - Per-operation rate limiting (sign, verify, hash, global)
+  - Multipart file upload with sanitization and storage quota enforcement
+  - Request routing to hasher and manifest builder services
+  - Upload lifecycle management (retention, pruning, usage tracking)
+  - CORS policy enforcement for web client
+  - Client-observed stage timing measurement
+
+Design Rationale: Centralizing authentication and rate limiting at the gateway
+prevents duplicate policy enforcement across backend services and provides a
+single trust boundary for external clients.
+
+2.1.2 Hasher Service (Port 3001)
+Service Role: Cryptographic hash computation and immutable object storage
+Technology: Rust + Axum + AWS SDK for S3-compatible storage
+Key Capabilities:
+  - Secure file path validation with canonicalization (prevents path traversal)
+  - Hash computation (SHA-256 or Keccak-256) with streaming I/O
+  - Content-addressed object storage in MinIO (sharded by hash prefix)
+  - Multipart upload support for large files (>16MB threshold)
+  - Server-side hash timing measurement
+  - Post-open file metadata verification (TOCTOU mitigation)
+
+Design Rationale: Isolating hash computation enables independent performance
+profiling of hash algorithms without interference from signing operations.
+Content-addressed storage ensures immutable objects are deduplicated and
+retrievable by hash.
+
+2.1.3 Manifest Builder Service (Port 3002)
+Service Role: Cryptographic signing and signature verification
+Technology: Rust + Axum + pqcrypto-dilithium + rsa crate
+Key Capabilities:
+  - Canonical manifest generation (CBOR deterministic serialization)
+  - RSA-PSS signing (4096-bit key, SHA-256 hash)
+  - Dilithium3 signing (NIST Level 3 security parameter)
+  - Hybrid signing (independent parallel execution of both algorithms)
+  - Signature verification with multi-stage validation checks
+  - Manifest persistence in PostgreSQL with owner key fingerprint indexing
+  - Revocation support (manifests with non-null revoked_at fail verification)
+  - Server-side sign/verify timing measurement
+
+Design Rationale: Separating signing from hashing ensures cryptographic key
+material is only accessible to the manifest builder service. The canonical
+manifest approach (domain-separated CBOR) ensures reproducible signatures
+independent of serialization order or metadata changes.
+
+2.1.4 PostgreSQL (Port 5432)
+Service Role: Persistent storage for signed manifests and metadata
+Schema: signed_manifests table with indexed fields:
+  - request_id (UUID, unique)
+  - owner_key_fingerprint (indexed for ownership queries)
+  - hash, algorithm, immutable_object_id (indexed for lookup)
+  - manifest_json (JSONB for full signed manifest storage)
+  - created_at, revoked_at (timestamp fields for lifecycle management)
+
+Design Rationale: Relational storage enables efficient manifest querying by
+owner, request ID, or hash. JSONB storage preserves full manifest structure
+for audit and verification replay.
+
+2.1.5 MinIO (Port 9000)
+Service Role: Immutable object storage (S3-compatible)
+Bucket Structure:
+  - Bucket: pqc-objects
+  - Key pattern: objects/{algorithm}/{shard}/{hash}
+    Example: objects/sha256/ab/abc123...
+  
+Access Control:
+  - hasher-service: Read/write access for upload
+  - manifest-builder-service: Read-only access for verification
+
+Design Rationale: Content-addressed storage with hash-based sharding ensures
+objects are immutable and retrievable without centralized index. S3-compatible
+API enables future migration to cloud object storage if needed.
+
+2.1.6 Web UI (Port 5173, development)
+Service Role: Interactive demonstration and transparent workflow visualization
+Technology: React + TypeScript + Vite + TailwindCSS
+Key Capabilities:
+  - File upload with drag-and-drop
+  - Signature profile selection (classical, pqc, hybrid)
+  - Hash algorithm selection (SHA-256, Keccak-256)
+  - Manifest display with formatted JSON
+  - Verification workflow with visual status feedback
+
+Design Rationale: Web UI provides human-accessible demonstration of system
+capabilities but is NOT the canonical benchmarking interface (CLI is canonical).
+Cryptographic operations remain backend-only; UI is purely presentational.
+
+2.1.7 Benchmark CLI (benchmark-cli binary)
+Service Role: Formal evidence generation with reproducible batch execution
+Technology: Rust (standalone binary)
+Key Capabilities:
+  - Dataset-driven batch execution across condition matrix
+  - Randomized run ordering with configurable seed
+  - Warm-up exclusion (first N runs discarded from analysis)
+  - Summary statistics (median, IQR, p95, 95% CI via bootstrap)
+  - Structured export (JSON report, CSV per-run data, CSV summary)
+  - Server-side timing extraction via operations endpoint for formal campaigns
+
+Design Rationale: CLI is the authoritative benchmarking tool, ensuring
+reproducible execution without browser overhead or network variance from
+user interaction patterns. Structured output enables statistical analysis
+in external tools (Python, R).
+
+
+2.2 Service Responsibilities and Boundaries
+--------------------------------------------
+
+Trust Boundaries:
+  1. External → API Gateway: Authentication required (X-API-Key header)
+  2. API Gateway → Internal Services: Internal service token required (X-Service-Token)
+  3. Services → MinIO: Credential-based authentication (separate keys per service)
+  4. Services → PostgreSQL: Connection string authentication
+
+Service Contracts (REST JSON):
+
+  POST /upload (API Gateway)
+    Input: multipart/form-data with file
+    Output: { file_path, original_filename, size, content_type, uploaded_at }
+    Responsibility: File sanitization, storage quota enforcement, upload lifecycle
+  
+  POST /hash (Hasher Service, internal-only)
+    Input: { file_path, request_id, hash_algorithm, storage_bucket }
+    Output: { hash, algorithm, file_size, storage_bucket, storage_key, immutable_object_id }
+    Responsibility: Hash computation, content-addressed storage upload
+  
+  POST /manifest (Manifest Builder Service, internal-only)
+    Input: { request_id, owner_key_fingerprint, hash, algorithm, file_size, file_path,
+             storage_bucket, storage_key, immutable_object_id, signature_profile,
+             schema_version, domain_sep }
+    Output: { core, envelope, signatures }
+    Responsibility: Canonical manifest generation, cryptographic signing, persistence
+  
+  POST /verify (Manifest Builder Service, internal-only)
+    Input: { request_id, owner_key_fingerprint, verify_object, file_path }
+    Output: { signature_ok, object_ok, file_hash_match, overall_ok, errors, checks }
+    Responsibility: Multi-stage signature verification, object integrity validation
+  
+  POST /process (API Gateway)
+    Input: { file_path, signature_profile, hash_algorithm }
+    Output: { manifest }
+    Responsibility: Orchestration of hash + sign workflow
+
+
+2.3 Inter-Service Communication Mechanisms
+-------------------------------------------
+
+Protocol: Synchronous HTTPS (TLS 1.2+)
+Format: JSON-encoded request/response bodies
+Authentication: Bearer token (X-Service-Token header)
+Timeout Configuration:
+  - Connect timeout: 5 seconds
+  - Request timeout: 30 seconds
+
+TLS Certificate Management:
+  - Local development: Self-signed CA with service-specific certificates
+  - Nginx TLS termination proxies for internal services (hasher-service-tls,
+    manifest-builder-service-tls)
+  - Reqwest client configured with custom CA bundle (INTERNAL_CA_CERT_PATH)
+  - Fail-closed policy: ALLOW_INSECURE_INTERNAL_HTTP only permitted in local/dev
+    environments
+
+Design Rationale: Synchronous REST provides request/response semantics suitable
+for cryptographic operations that require immediate confirmation. HTTPS with
+certificate validation prevents MITM attacks on internal service communication.
+
+
+2.4 Data Flow Between Components
+---------------------------------
+
+2.4.1 Signing Flow (Web UI or CLI → Gateway → Hasher → Manifest Builder → Storage)
+
+Step 1: File Upload
+  Client → POST /upload → API Gateway
+    - Multipart file received and sanitized
+    - File written to /data/uploads/{key_fingerprint}/{uuid}-{sanitized_name}
+    - Upload quota checked (prune expired files, measure retained usage)
+    - Return: { file_path, ... }
+
+Step 2: Hash Computation
+  API Gateway → POST /hash → Hasher Service
+    - Path validation (canonicalization, allowed directory check, no symlinks)
+    - File opened with metadata verification (post-open type check for TOCTOU mitigation)
+    - Hash computed with streaming I/O (8KB buffer)
+    - Object spooled to temporary file concurrently with hash computation
+    - Object uploaded to MinIO at content-addressed key: objects/{alg}/{shard}/{hash}
+    - Hash timing recorded
+    - Return: { hash, algorithm, file_size, storage_bucket, storage_key, immutable_object_id }
+
+Step 3: Manifest Generation and Signing
+  API Gateway → POST /manifest → Manifest Builder Service
+    - ManifestCore constructed with canonical deterministic fields
+    - ManifestEnvelope constructed with audit metadata (timestamp, context, source file metadata)
+    - Canonical CBOR serialization of ManifestCore
+    - Domain-separated signing message: domain_sep || 0x00 || canonical_cbor
+    - Cryptographic signing based on signature_profile:
+      * classical_only: RSA-PSS signature only
+      * pqc_only: Dilithium signature only
+      * hybrid: Both RSA-PSS and Dilithium (independent execution)
+    - Sign timing recorded per algorithm
+    - Signed manifest persisted to PostgreSQL (signed_manifests table)
+    - Return: { core, envelope, signatures }
+
+Step 4: Response to Client
+  API Gateway → Client
+    - SignedManifest JSON returned to client
+    - Client-observed total latency recorded
+
+2.4.2 Verification Flow (Web UI or CLI → Gateway → Manifest Builder → Storage)
+
+Step 1: Verification Request
+  Client → POST /verify → API Gateway
+    - Request_id provided to identify manifest
+    - verify_object flag indicates whether to fetch and re-hash object from MinIO
+    - API Gateway routes to Manifest Builder Service
+
+Step 2: Manifest Retrieval and Validation
+  API Gateway → POST /verify → Manifest Builder Service
+    - Manifest fetched from PostgreSQL by request_id and owner_key_fingerprint
+    - Age check: manifest.created_at within MAX_MANIFEST_AGE_HOURS threshold
+    - Revocation check: manifest.revoked_at must be null
+    - Canonical manifest reconstructed from manifest.core
+    - Domain-separated signing message reconstructed
+
+Step 3: Signature Verification
+  Manifest Builder Service (internal):
+    - RSA-PSS signature verification (if present in manifest.signatures.rsa_pss)
+      * Load RSA public key from RSA_PUBLIC_KEY file
+      * Verify signature over domain-separated signing message
+    - Dilithium signature verification (if present in manifest.signatures.dilithium)
+      * Load Dilithium public key from DILITHIUM_PUBLIC_KEY file
+      * Verify signature over domain-separated signing message
+    - Signature profile satisfaction check:
+      * classical_only: requires rsa_pss signature valid
+      * pqc_only: requires dilithium signature valid
+      * hybrid: requires BOTH rsa_pss AND dilithium signatures valid
+
+Step 4: Object Integrity Verification (if verify_object=true)
+  Manifest Builder Service → MinIO:
+    - Fetch object from storage_bucket/storage_key using manifest metadata
+    - Size check: object size must match manifest.core.size (MAX_VERIFY_OBJECT_SIZE limit enforced)
+    - Streaming hash computation (SHA-256 or Keccak-256 based on manifest.core.algorithm)
+    - Hash comparison: computed hash must match manifest.core.hash
+    - Verify timing recorded
+
+Step 5: Response to Client
+  Manifest Builder Service → API Gateway → Client
+    - VerifyResponse with detailed check results:
+      * signature_ok: true if all required signatures valid
+      * object_ok: true if object fetched and hash matches
+      * file_hash_match: true if provided file hash matches manifest
+      * overall_ok: true if all enabled checks pass
+      * errors: array of failure descriptions
+      * checks: array of individual verification steps with pass/fail status
+      * metadata: signature profile, hash algorithm, manifest timestamps
+
+2.4.3 CLI Benchmark Flow (Batch Execution with Randomized Ordering)
+
+Step 1: Dataset Preparation
+  - generate_benchmark_dataset.py creates deterministic files in size buckets:
+    * 10KB, 100KB, 1MB, 10MB, 50MB
+  - Files named with size and hash for reproducibility
+
+Step 2: Job Matrix Generation
+  - Condition matrix: profiles × hashes × buckets
+    Example: {classical, pqc, hybrid} × {sha256, keccak256} × {10KB, 100KB, 1MB, 10MB, 50MB}
+    = 3 × 2 × 5 = 30 conditions
+  - Jobs: warmup_runs × conditions (discarded) + measured_runs × conditions (analyzed)
+  - Randomization: measured jobs shuffled with configurable seed for deterministic ordering
+
+Step 3: Warm-up Execution
+  - First warmup_runs per condition executed to prime caches and JIT
+  - Results excluded from statistical analysis
+
+Step 4: Measured Execution
+  - For each job in randomized order:
+    1. Upload file via POST /upload
+    2. Process file via POST /process with job.condition parameters
+    3. Verify manifest via POST /verify with verify_object=false (signature only)
+    4. Record client-observed stage latencies (upload_ms, process_ms, verify_ms, total_ms)
+    5. Extract manifest size and signature sizes from response
+    6. Fetch server-side timings from /operations endpoint by request_id
+
+Step 5: Summary Statistics Computation
+  - Per condition (profile × hash × bucket):
+    * Filter to successful measured runs only
+    * Compute median, IQR, p95 for each metric
+    * Bootstrap 95% CI for median (1000+ samples)
+    * Compute slowdown ratios: S_pqc = median_total_pqc / median_total_classical
+                               S_hybrid = median_total_hybrid / median_total_classical
+
+Step 6: Structured Export
+  - benchmark-report-{timestamp}.json: full config, raw runs, summaries
+  - benchmark-runs-{timestamp}.csv: per-run records for reproducibility
+  - benchmark-summary-{timestamp}.csv: per-condition summary metrics
+
+
+2.5 Dependency Structure
+-------------------------
+
+External Dependencies (Rust crates):
+  - axum: Async web framework (request routing, middleware)
+  - tokio: Async runtime (file I/O, network I/O, concurrency primitives)
+  - sqlx: Async PostgreSQL client with compile-time query validation
+  - aws-sdk-s3: S3-compatible object storage client
+  - rsa: RSA cryptographic operations (PKCS#8 key loading, PSS signing)
+  - pqcrypto-dilithium: Post-quantum Dilithium signature scheme (NIST Level 3)
+  - sha2, sha3: Cryptographic hash functions (SHA-256, Keccak-256)
+  - serde, serde_json: Serialization/deserialization (JSON, CBOR)
+  - tower-http: HTTP middleware (CORS, rate limiting, tracing)
+  - governor: Token-bucket rate limiting
+  - reqwest: HTTP client for internal service communication
+  - chrono: Timestamp handling
+  - uuid: Unique request identifier generation
+
+Runtime Dependencies (Docker services):
+  - PostgreSQL 16: Manifest persistence
+  - MinIO (latest): S3-compatible object storage
+  - Nginx (alpine): TLS termination for internal services
+
+Build Dependencies:
+  - Rust 1.75+ with cargo
+  - cargo-chef for Docker layer caching
+  - cmake, clang (required by aws-lc-sys cryptographic backend)
+
+
+2.6 Deployment Topology
+------------------------
+
+Container Orchestration: Docker Compose (local/development)
+Network: Single Docker bridge network (pqc-network)
+Volumes:
+  - upload-data: Shared volume for temporary upload storage (gateway ↔ hasher)
+  - ./keys: Cryptographic key material (read-only, mounted to manifest-builder)
+  - ./tls: TLS certificates and CA bundle (read-only, mounted to all services)
+  - ./api-keys.local.json: API key definitions (read-only, mounted to gateway)
+
+Service Topology:
+
+  [External Client (Web Browser / CLI)]
+         ↓ HTTPS (3000)
+  [API Gateway] ← X-API-Key authentication
+         ↓ HTTPS (X-Service-Token)
+  [Hasher Service] ← internal service auth
+         ↓ HTTPS (X-Service-Token)
+  [Manifest Builder Service] ← internal service auth
+         ↓ DB connection
+  [PostgreSQL]
+  
+  [Hasher Service] ←→ HTTPS/S3 → [MinIO]
+  [Manifest Builder Service] ←→ HTTPS/S3 → [MinIO]
+
+TLS Termination Topology (local development):
+  - Hasher Service (HTTP 3001) ← nginx-tls-proxy (HTTPS 3443)
+  - Manifest Builder Service (HTTP 3002) ← nginx-tls-proxy (HTTPS 3443)
+  - API Gateway connects to https://hasher-service-tls:3443
+
+Security Hardening (Container-level):
+  - Non-root user (UID 1000) for all application containers
+  - Capabilities dropped: ALL
+  - Capabilities added: NET_BIND_SERVICE (bind to port 3000)
+  - security_opt: no-new-privileges
+  - Read-only volume mounts for keys and certificates
+
+
+================================================================================
+SECTION 3: WEB UI FLOW
+================================================================================
+
+3.1 User Interaction Lifecycle
+-------------------------------
+
+Phase 1: Authentication
+  1. User navigates to Web UI (http://localhost:5173 in development)
+  2. AuthContext checks localStorage for existing API key
+  3. If no key found, AuthPage component renders
+  4. User enters API key (provided separately via api-keys.local.json)
+  5. API key stored in localStorage and set in axios client default headers
+  6. User redirected to MainPage
+
+Phase 2: File Selection (Sign Flow)
+  1. User clicks "Sign File" on MainPage
+  2. SignPage component renders with FileUploadZone
+  3. User drags file or clicks to select file
+  4. File size validated client-side (must be < MAX_UPLOAD_SIZE, default 100MB)
+  5. User selects signature profile: classical | pqc | hybrid (default: hybrid)
+  6. User selects hash algorithm: SHA256 | Keccak256 (default: SHA256)
+
+Phase 3: Upload Execution
+  1. User clicks "Sign File" button
+  2. FormData constructed with file and multipart boundary
+  3. POST /upload sent to API Gateway with X-API-Key header
+  4. Gateway authenticates request, sanitizes filename, writes to upload directory
+  5. Upload quota checked (prunes expired files, measures retained usage)
+  6. Response: { file_path, original_filename, size, content_type, uploaded_at }
+  7. Client displays success message with file metadata
+
+Phase 4: Processing Execution
+  1. Client automatically triggers POST /process with:
+     { file_path, signature_profile, hash_algorithm, bucket }
+  2. API Gateway orchestrates hash + sign workflow (see Section 2.4.1)
+  3. Response: { manifest: { core, envelope, signatures } }
+  4. Client displays ManifestViewer component with formatted manifest JSON
+
+Phase 5: Manifest Display
+  1. ManifestViewer renders collapsible sections:
+     - Core (canonical signed fields)
+     - Envelope (audit metadata)
+     - Signatures (base64-encoded RSA-PSS and/or Dilithium signatures)
+  2. Signature sizes displayed (RSA: ~512 bytes, Dilithium: ~2420 bytes)
+  3. Manifest JSON download button available
+  4. "Sign Another File" button resets state to Phase 2
+
+Phase 6: Verification Flow (Separate from Sign Flow)
+  1. User clicks "Verify Manifest" on MainPage
+  2. VerifyPage component renders
+  3. User enters request_id from previously signed manifest
+  4. User toggles verify_object option (default: false, signature-only verification)
+  5. POST /verify sent to API Gateway
+  6. Response: { signature_ok, object_ok, file_hash_match, overall_ok, errors, checks }
+  7. Visual status display:
+     - Green checkmarks for passed checks
+     - Red X for failed checks
+     - Detailed error messages if overall_ok=false
+
+
+3.2 API Interaction Sequence
+-----------------------------
+
+API Client Configuration (src/api/client.ts):
+  - Axios instance with baseURL from environment (default: http://localhost:3000)
+  - X-API-Key header injected from AuthContext
+  - Error interceptor for standardized error handling
+  - Request/response interceptors for logging (development mode)
+
+Request Flow:
+  1. Component calls apiClient.post(endpoint, payload)
+  2. Axios adds X-API-Key header automatically
+  3. Request sent to API Gateway
+  4. Gateway validates API key, checks rate limits, routes to internal service
+  5. Response returned to client
+  6. Success: Component updates state with response data
+  7. Error: Error interceptor extracts error message, component displays toast notification
+
+
+3.3 Authentication and Session Handling
+----------------------------------------
+
+Authentication Strategy: API Key (bearer token)
+Storage: Browser localStorage (key: 'pqc_api_key')
+Lifecycle:
+  - Login: User enters API key → stored in localStorage → axios header configured
+  - Persistence: localStorage persists across browser sessions
+  - Logout: localStorage cleared → redirect to AuthPage
+
+Security Considerations:
+  - API keys transmitted via HTTPS only in production (CORS enforced)
+  - localStorage vulnerable to XSS (acceptable for research prototype scope)
+  - No session expiration (stateless authentication, server-side rate limiting enforced)
+
+Role-Based Access Control:
+  - Admin: Full access (sign, verify, revoke)
+  - Operator: Sign and verify only
+  - ReadOnly: Verify only
+
+Enforcement:
+  - Server-side: API Gateway checks role before routing requests
+  - Client-side: UI shows/hides actions based on role (cosmetic only, not trusted)
+
+
+3.4 File Handling Workflow
+---------------------------
+
+Client-Side (Browser):
+  1. File selected via <input type="file"> or drag-and-drop
+  2. File size validated: must be ≤ MAX_UPLOAD_SIZE (configurable, default 100MB)
+  3. FormData constructed with file and Content-Type inferred from extension
+  4. POST /upload sent with multipart/form-data encoding
+
+Server-Side (API Gateway):
+  1. Multipart stream parsed (axum::extract::Multipart)
+  2. Filename extracted and sanitized:
+     - Remove non-alphanumeric characters except . - _
+     - Strip leading dots (prevent hidden files)
+     - Generate UUID to prevent filename collisions
+  3. Upload directory structure: /data/uploads/{key_fingerprint}/{uuid}-{sanitized_name}
+  4. File written with tokio::fs::File (async streaming, 8KB buffer)
+  5. Upload quota enforcement:
+     - Prune files older than UPLOAD_RETENTION_HOURS (default: 24 hours)
+     - Measure total retained usage for key_fingerprint
+     - Reject upload if total usage > MAX_UPLOAD_STORAGE_PER_KEY (default: 512MB)
+  6. File metadata returned to client
+
+Temporary Storage Lifecycle:
+  - Files stored in /data/uploads/{key_fingerprint}/ directory
+  - Retention: UPLOAD_RETENTION_HOURS (default: 24 hours)
+  - Pruning: Triggered on each new upload request for that key_fingerprint
+  - Immutable objects stored in MinIO (permanent, content-addressed)
+
+Design Rationale: Temporary uploads enable re-processing and verification
+without re-uploading, while automatic pruning prevents unbounded storage growth.
+
+
+3.5 Error Handling and Edge Cases
+----------------------------------
+
+Client-Side Error Handling:
+  1. Network errors: Retry with exponential backoff (axios-retry planned)
+  2. Authentication errors (401): Clear localStorage, redirect to AuthPage
+  3. Authorization errors (403): Display "Insufficient permissions" message
+  4. Rate limit errors (429): Display "Too many requests, please wait" with countdown
+  5. Validation errors (400): Display specific error message from server
+  6. Server errors (5xx): Display generic "Server error, please try again" message
+
+Server-Side Error Handling:
+  1. Invalid file path: 400 Bad Request with "Invalid file path" message
+  2. Missing file: 404 Not Found with "File not found" message
+  3. Upload quota exceeded: 429 Too Many Requests with quota details
+  4. Hash computation failure: 500 Internal Server Error (logged server-side)
+  5. Signing failure: 500 Internal Server Error (logged server-side)
+  6. Database connection failure: 503 Service Unavailable
+
+Edge Cases:
+  - Duplicate filename: UUID prevents collisions
+  - Zero-byte file: Allowed (hash computed correctly)
+  - Very large file (>100MB): Rejected at API Gateway with 413 Payload Too Large
+  - Symbolic link upload: Rejected by path validation (follow_symlinks=false)
+  - Path traversal attempt (../../../etc/passwd): Rejected by canonicalization check
+  - TOCTOU attack (file replaced after validation): Mitigated by post-open metadata check
+  - Concurrent uploads by same key: Independent UUID-based filenames prevent collision
+
+
+3.6 Trust Boundaries and Validation Checkpoints
+------------------------------------------------
+
+Trust Boundary 1: Client → API Gateway
+  Checkpoint: API key authentication
+  Validation:
+    - X-API-Key header present and matches configured key
+    - Role sufficient for requested operation
+    - Rate limit not exceeded for identity
+  Threat: Unauthenticated access, brute force, DoS
+
+Trust Boundary 2: API Gateway → Internal Services
+  Checkpoint: Internal service token
+  Validation:
+    - X-Service-Token header present and matches INTERNAL_SERVICE_TOKEN
+    - Minimum 32-character token length enforced at startup
+  Threat: Unauthorized internal service access if gateway compromised
+
+Trust Boundary 3: Services → Filesystem
+  Checkpoint: Path validation and canonicalization
+  Validation:
+    - File path must be within ALLOWED_FILE_DIRECTORIES
+    - Canonical path must start with allowed prefix (prevents traversal)
+    - No symbolic links followed (FOLLOW_SYMLINKS=false)
+    - Post-open metadata check (file type still regular file, not replaced)
+  Threat: Path traversal, symbolic link attacks, TOCTOU
+
+Trust Boundary 4: Services → MinIO
+  Checkpoint: Credential-based authentication
+  Validation:
+    - Separate access keys for hasher (read/write) and verifier (read-only)
+    - TLS certificate validation enforced (ALLOW_INSECURE_MINIO_HTTP=false in production)
+  Threat: Object tampering, unauthorized object access
+
+Trust Boundary 5: Services → PostgreSQL
+  Checkpoint: Connection string authentication
+  Validation:
+    - Database credentials in DATABASE_URL environment variable
+    - Parameterized queries (SQLx compile-time validation)
+  Threat: SQL injection, unauthorized manifest access
+
+
+================================================================================
+SECTION 4: HEADLESS CLI BENCHMARKING FLOW
+================================================================================
+
+4.1 CLI Execution Lifecycle
+----------------------------
+
+Phase 1: Initialization
+  1. Parse command-line arguments (clap crate)
+  2. Validate required parameters:
+     - base_url: API Gateway endpoint (default: http://localhost:3000)
+     - api_key: Operator or Admin role required (env: PQC_API_KEY)
+     - dataset_dir: Directory with size-bucketed files
+     - output_dir: Where to write benchmark results
+  3. Load dataset inventory:
+     - Scan dataset_dir/{bucket}/ for files (e.g., 10KB/, 100KB/, 1MB/)
+     - Validate at least one file per bucket
+  4. Generate condition matrix:
+     - Cartesian product of profiles × hashes × buckets
+     - Example: 3 profiles × 2 hashes × 5 buckets = 30 conditions
+  5. Generate job list:
+     - warmup_runs × conditions (phase: Warmup)
+     - measured_runs × conditions (phase: Measured)
+  6. Shuffle measured jobs with seed for deterministic randomization
+
+Phase 2: Warm-up Execution
+  1. For each warm-up job (in condition order):
+     - Upload file
+     - Process file with job.condition parameters
+     - Verify manifest (verify_object=false, signature-only)
+     - Discard results (not included in summary statistics)
+  2. Purpose: Prime HTTP connection pools, filesystem caches, JIT compilation
+
+Phase 3: Measured Execution
+  1. For each measured job (in randomized order):
+     - Record job start timestamp
+     - Upload file via POST /upload (measure client_upload_ms)
+     - Process file via POST /process (measure client_process_ms)
+     - Verify manifest via POST /verify (measure client_verify_ms)
+     - Extract manifest size, signature sizes from response
+     - Fetch server-side timings from operations endpoint by request_id
+     - Record overall success/failure status
+     - Inter-run delay: sleep(inter_run_delay_ms) between jobs
+  2. Error handling:
+     - If fail_fast=true: abort on first error
+     - If fail_fast=false: continue and record error in run_record
+
+Phase 4: Summary Statistics Computation
+  1. For each condition:
+     - Filter to successful measured runs only
+     - Compute per-metric summaries:
+       * client_upload_ms: median, IQR, p95, 95% CI
+       * client_process_ms: median, IQR, p95, 95% CI
+       * client_verify_ms: median, IQR, p95, 95% CI
+       * client_total_ms: median, IQR, p95, 95% CI
+       * manifest_size_bytes: median, IQR, p95
+       * total_signature_bytes: median, IQR, p95
+     - Compute slowdown ratios (relative to classical_only):
+       * S_pqc = median_total_pqc / median_total_classical
+       * S_hybrid = median_total_hybrid / median_total_classical
+
+Phase 5: Structured Export
+  1. benchmark-report-{timestamp}.json:
+     - Full config (CLI args, condition matrix, runtime environment)
+     - Raw run records (all per-run data)
+     - Per-condition summaries (statistics)
+  2. benchmark-runs-{timestamp}.csv:
+     - One row per run
+     - Columns: run_index, phase, condition_*, file_*, client_*, server_*, error
+  3. benchmark-summary-{timestamp}.csv:
+     - One row per condition
+     - Columns: condition_*, n_runs, success_rate, median_*, iqr_*, p95_*, ci95_*
+
+
+4.2 Input Handling and Configuration
+-------------------------------------
+
+Command-Line Arguments:
+  --base-url: API Gateway URL (default: http://localhost:3000)
+  --api-key: API key with Operator or Admin role (env: PQC_API_KEY)
+  --dataset-dir: Path to benchmark dataset (generated by generate_benchmark_dataset.py)
+  --output-dir: Path to output directory (default: output/benchmarks)
+  --profiles: Comma-separated list (default: classical,pqc,hybrid)
+  --hashes: Comma-separated list (default: sha256,keccak256)
+  --buckets: Comma-separated list (default: 10KB,100KB,1MB,10MB,50MB)
+  --warmup-runs: Warm-up iterations per condition (default: 3)
+  --measured-runs: Measured iterations per condition (default: 30)
+  --inter-run-delay-ms: Sleep between runs (default: 0)
+  --fail-fast: Abort on first error (default: false)
+  --seed: Randomization seed for deterministic ordering (optional)
+  --operations-endpoint: Optional endpoint for server-side timing extraction
+  --bootstrap-samples: Bootstrap iterations for CI estimation (default: 1000)
+
+Dataset Structure:
+  dataset-dir/
+    10KB/
+      file-10kb-001.bin
+      file-10kb-002.bin
+    100KB/
+      file-100kb-001.bin
+    1MB/
+      file-1mb-001.bin
+    10MB/
+      file-10mb-001.bin
+    50MB/
+      file-50mb-001.bin
+
+Dataset Generation (scripts/generate_benchmark_dataset.py):
+  - Generates deterministic files with cryptographically random content
+  - Filenames include size and SHA-256 hash for reproducibility
+  - Size buckets configurable via --sizes argument
+
+
+4.3 Benchmark Orchestration
+----------------------------
+
+Job Scheduling:
+  1. Warm-up jobs executed in condition order (not randomized)
+  2. Measured jobs randomized with configurable seed:
+     - Creates StdRng from seed (if provided) or random seed
+     - Shuffles job list with SliceRandom::shuffle
+     - Ensures condition ordering doesn't bias results (e.g., thermal throttling)
+
+Execution Strategy:
+  - Sequential execution (no parallelism within benchmark run)
+  - Single HTTP client instance (connection pooling enabled)
+  - Explicit inter-run delay (if configured) to allow system to stabilize
+
+Error Recovery:
+  - Transient failures (network timeout): Recorded as error, continue to next job
+  - Authentication failure (401): Fatal error, abort immediately
+  - Rate limit (429): Wait and retry with exponential backoff (up to 3 retries)
+  - Validation error (400): Recorded as error, continue to next job
+
+
+4.4 Performance Measurement Strategy
+-------------------------------------
+
+Client-Observed Metrics:
+  - upload_ms: Elapsed time for POST /upload (multipart upload)
+  - process_ms: Elapsed time for POST /process (hash + sign orchestration)
+  - verify_ms: Elapsed time for POST /verify (signature verification)
+  - total_ms: Sum of upload_ms + process_ms + verify_ms
+
+Artifact Metrics:
+  - manifest_size_bytes: Size of signed manifest JSON
+  - rsa_signature_bytes: Size of base64-decoded RSA-PSS signature (if present)
+  - dilithium_signature_bytes: Size of base64-decoded Dilithium signature (if present)
+  - total_signature_bytes: Sum of rsa_signature_bytes + dilithium_signature_bytes
+
+Server-Side Metrics (via operations endpoint; required for formal server-attributed benchmarking):
+  - server_hash_ms: Hash computation time (hasher service)
+  - server_rsa_sign_ms: RSA-PSS signing time (manifest builder)
+  - server_dilithium_sign_ms: Dilithium signing time (manifest builder)
+  - server_verify_ms: Signature verification time (manifest builder)
+  - server_total_ms: Sum of server-side operation times
+
+Timing Precision:
+  - std::time::Instant::now() for client-side measurement (monotonic clock)
+  - Nanosecond precision converted to milliseconds (f64) for statistical analysis
+
+
+4.5 Logging and Output Format
+------------------------------
+
+Console Logging:
+  - Progress indicator: "[{current}/{total}] {phase} | {profile} | {hash} | {bucket}"
+  - Per-run status: "✓ Success" or "✗ Error: {message}"
+  - Summary statistics displayed at end of run
+
+JSON Report (benchmark-report-{timestamp}.json):
+  {
+    "config": {
+      "base_url": "http://localhost:3000",
+      "dataset_dir": "./benchmark-dataset",
+      "profiles": ["classical", "pqc", "hybrid"],
+      "hashes": ["sha256", "keccak256"],
+      "buckets": ["10KB", "100KB", "1MB", "10MB", "50MB"],
+      "warmup_runs": 3,
+      "measured_runs": 30,
+      "seed": 42
+    },
+    "runs": [ /* array of RunRecord */ ],
+    "summaries": [ /* array of ConditionSummary */ ]
+  }
+
+CSV Runs (benchmark-runs-{timestamp}.csv):
+  run_index,phase,condition_profile,condition_hash,condition_bucket,file_path,file_size_bytes,
+  request_id,verify_ok,client_upload_ms,client_process_ms,client_verify_ms,client_total_ms,
+  manifest_size_bytes,rsa_sig_bytes,dilithium_sig_bytes,total_sig_bytes,
+  server_hash_ms,server_rsa_sign_ms,server_dilithium_sign_ms,server_verify_ms,error
+
+CSV Summary (benchmark-summary-{timestamp}.csv):
+  profile,hash,bucket,n_success,n_failed,verify_rate,
+  upload_median,upload_iqr,upload_p95,
+  process_median,process_iqr,process_p95,
+  verify_median,verify_iqr,verify_p95,
+  total_median,total_iqr,total_p95,total_ci95_low,total_ci95_high,
+  manifest_median,sig_median,
+  s_pqc_vs_classical,s_hybrid_vs_classical
+
+
+4.6 Deterministic vs Non-Deterministic Factors
+-----------------------------------------------
+
+Deterministic Factors (Controllable):
+  - Dataset content: Fixed files with known size and hash
+  - Condition ordering: Controlled by seed parameter
+  - HTTP client configuration: Timeouts, connection limits
+  - Cryptographic algorithms: RSA-4096, Dilithium3, SHA-256, Keccak-256
+
+Non-Deterministic Factors (Uncontrollable):
+  - Network latency: Jitter in HTTP request/response time
+  - System load: Background processes, OS scheduler decisions
+  - Thermal throttling: CPU frequency scaling under sustained load
+  - Garbage collection: Memory allocator behavior
+  - Disk I/O contention: Filesystem cache state
+
+Mitigation Strategies:
+  - Warm-up runs: Prime caches and JIT before measurement
+  - Randomized ordering: Prevent systematic bias from thermal or cache effects
+  - Multiple runs: Statistical distribution captures variance
+  - Median reporting: Robust to outliers compared to mean
+
+
+4.7 Isolation and Reproducibility Considerations
+-------------------------------------------------
+
+Hardware Isolation (Recommended):
+  - Dedicated benchmark machine (no concurrent interactive use)
+  - Disable CPU frequency scaling (set governor to "performance")
+  - Disable swap (prevent memory pressure effects)
+  - Close unnecessary background processes
+
+Software Isolation:
+  - Docker Compose isolates services in containers
+  - Shared volumes for uploads (gateway ↔ hasher) are ephemeral
+  - MinIO bucket dedicated to benchmark runs (no concurrent production traffic)
+
+Build Reproducibility:
+  - Cargo.lock pins exact dependency versions
+  - Docker build uses multi-stage caching with cargo-chef
+  - Release build profile (--release) for consistent optimization level
+
+Environment Reproducibility:
+  - Fixed environment variables (RUST_LOG, MAX_UPLOAD_SIZE, etc.)
+  - Same Docker Compose version across runs
+  - Same Rust toolchain version (specified in Dockerfile)
+
+Audit Trail:
+  - Benchmark report includes full config and runtime parameters
+  - Git commit hash (not currently captured, recommended addition)
+  - System info (CPU model, RAM, OS version) (not currently captured, recommended)
+
+
+================================================================================
+SECTION 5: SECURITY ARCHITECTURE
+================================================================================
+
+5.1 Threat Model Assumptions
+-----------------------------
+
+Trusted Components:
+  - Backend services (API Gateway, Hasher, Manifest Builder) are trusted
+  - PostgreSQL and MinIO storage are trusted
+  - Docker host system is trusted (compromised host = full system compromise)
+  - TLS certificate authority is trusted (self-signed for local, real CA for production)
+
+Untrusted Components:
+  - External clients (Web UI, CLI, malicious actors)
+  - User-provided files (may be malicious, malformed, or excessively large)
+  - User-provided file paths (may contain path traversal, symbolic links)
+
+Adversary Capabilities (Out of Scope for Research Prototype):
+  - Advanced persistent threats (APT)
+  - Side-channel attacks (timing, power analysis, cache-based)
+  - Supply chain attacks (compromised dependencies)
+  - Physical access to server hardware
+  - Social engineering of key holders
+
+Adversary Capabilities (In Scope):
+  - Unauthenticated HTTP requests to API Gateway
+  - Brute force API key guessing
+  - Path traversal attempts (../../../etc/passwd)
+  - Symbolic link attacks
+  - TOCTOU race conditions (file replaced between validation and use)
+  - Large file uploads (DoS via storage exhaustion)
+  - High request rate (DoS via CPU/memory exhaustion)
+  - Malformed JSON requests (injection, buffer overflow)
+
+
+5.2 Attack Surface Analysis
+----------------------------
+
+External Attack Surface (Internet-Facing):
+  - API Gateway port 3000 (HTTPS in production, HTTP in local dev)
+  - Web UI port 5173 (development only, served by Vite)
+
+Internal Attack Surface (Docker Network):
+  - Hasher Service port 3001 (HTTP, proxied via nginx TLS)
+  - Manifest Builder Service port 3002 (HTTP, proxied via nginx TLS)
+  - PostgreSQL port 5432 (internal network only)
+  - MinIO port 9000 (HTTPS, internal network only)
+
+Filesystem Attack Surface:
+  - Upload directory /data/uploads/{key_fingerprint}/ (world-readable, user-writable)
+  - Cryptographic keys /app/keys/ (read-only, mounted from host)
+  - TLS certificates /app/tls/ (read-only, mounted from host)
+
+Network Attack Surface:
+  - HTTP request parsing (axum multipart, JSON body)
+  - SQL query execution (parameterized, but still potential for logic bugs)
+  - S3 API interactions (AWS SDK, trusted but complex)
+
+
+5.3 Input Validation Strategy
+------------------------------
+
+API Gateway Input Validation:
+  1. API Key Validation:
+     - X-API-Key header must be present
+     - Key must match entry in api-keys.json or API_KEYS environment variable
+     - Key must have sufficient role for operation
+  
+  2. File Upload Validation:
+     - Multipart Content-Type required
+     - Filename must be non-empty after sanitization
+     - File size must be ≤ MAX_UPLOAD_SIZE (default: 100MB)
+     - Total stored size per key must be ≤ MAX_UPLOAD_STORAGE_PER_KEY (default: 512MB)
+  
+  3. JSON Body Validation:
+     - Content-Type: application/json required
+     - Body size must be ≤ MAX_JSON_BODY_SIZE (default: 64KB)
+     - Serde deserialization validates structure against type definitions
+  
+  4. Path Validation (ensure_user_owned_upload_path):
+     - Canonicalize upload_root and user_file_path (std::fs::canonicalize)
+     - Ensure canonical user_path starts with upload_root/key_fingerprint
+     - Reject if path is outside allowed directory (path traversal prevention)
+
+Hasher Service Input Validation:
+  1. Internal Service Token Validation:
+     - X-Service-Token header must match INTERNAL_SERVICE_TOKEN
+     - Token must be ≥ 32 characters
+  
+  2. File Path Validation (validate_file_path):
+     - Canonicalize file path (std::fs::canonicalize)
+     - Ensure path starts with allowed directory (ALLOWED_FILE_DIRECTORIES)
+     - Ensure path is not a symbolic link (FOLLOW_SYMLINKS=false)
+     - Post-open metadata check: ensure file type is still regular file (TOCTOU mitigation)
+  
+  3. Hash Algorithm Validation:
+     - Must be "SHA256" or "KECCAK" (case-insensitive)
+     - Invalid algorithm returns 400 Bad Request
+
+Manifest Builder Service Input Validation:
+  1. Internal Service Token Validation (same as Hasher Service)
+  
+  2. Signature Profile Validation:
+     - Must be "classical_only", "pqc_only", or "hybrid"
+     - Normalized from legacy values: "classical" → "classical_only", "pqc" → "pqc_only"
+  
+  3. Request ID Validation:
+     - Must be valid UUID format
+     - Must exist in signed_manifests table
+     - Manifest must not be revoked (revoked_at IS NULL)
+     - Manifest must be within MAX_MANIFEST_AGE_HOURS (default: 24 hours)
+
+
+5.4 File Handling Security
+---------------------------
+
+Filename Sanitization:
+  - Filter to alphanumeric, dot, dash, underscore only
+  - Strip leading dots (prevent hidden files)
+  - Prepend UUID to prevent collisions and predictable paths
+
+Path Traversal Prevention:
+  - Canonicalization: std::fs::canonicalize resolves .. and symlinks
+  - Prefix validation: Ensure canonical path starts with allowed directory
+  - Explicit check: Return error if path escapes allowed directory
+
+Symbolic Link Handling:
+  - FOLLOW_SYMLINKS=false (default and enforced)
+  - Symlinks rejected during path validation
+  - Post-canonicalization check ensures no symlink followed
+
+TOCTOU Mitigation:
+  - Open file with tokio::fs::File::open (atomic in POSIX semantics)
+  - Check file metadata AFTER opening (file_handle.metadata())
+  - Ensure file type is still regular file (not replaced with device/symlink)
+  - Read file contents from already-opened file descriptor
+
+File Size Limits:
+  - MAX_UPLOAD_SIZE: 100MB (configurable, enforced at upload)
+  - MAX_FILE_SIZE: 104857600 bytes (hasher service, prevents hash DoS)
+  - MAX_VERIFY_OBJECT_SIZE: 104857600 bytes (verifier, prevents fetch DoS)
+
+Upload Lifecycle Management:
+  - Temporary uploads stored in /data/uploads/{key_fingerprint}/
+  - Automatic pruning on each upload (removes files older than UPLOAD_RETENTION_HOURS)
+  - Quota enforcement: Total retained usage must be ≤ MAX_UPLOAD_STORAGE_PER_KEY
+
+
+5.5 Authentication and Authorization Model
+-------------------------------------------
+
+Authentication Scheme: API Key (bearer token)
+Token Format: 64-character hexadecimal string (SHA-256 hash output)
+Token Storage: api-keys.local.json (mounted read-only to API Gateway)
+
+API Key Structure (api-keys.local.json):
+  {
+    "175a925c44fd8236ba40f19bcb65d7a99ed9648262e3c6beafc93248c8b2a657": {
+      "role": "operator",
+      "description": "Benchmark CLI operator key"
+    }
+  }
+
+Token Transmission:
+  - X-API-Key header (preferred)
+  - Authorization: Bearer <key> header (legacy support)
+
+Role Hierarchy:
+  - admin: Full access (sign, verify, revoke, delete)
+  - operator: Sign and verify only
+  - readonly: Verify only
+
+Role Enforcement (check_role function):
+  - Checks if user_role >= required_role in hierarchy
+  - Returns 403 Forbidden if insufficient permissions
+
+Internal Service Authentication:
+  - X-Service-Token header required for all non-health internal requests
+  - Token must match INTERNAL_SERVICE_TOKEN environment variable
+  - Token must be ≥ 32 characters (enforced at startup)
+  - Token format: Random hexadecimal (openssl rand -hex 32)
+
+Rate Limiting Strategy:
+  - Key-based token bucket algorithm (governor crate)
+  - Separate limits per operation type:
+    * RATE_LIMIT_SIGN_PER_MIN: 60 (default)
+    * RATE_LIMIT_VERIFY_PER_MIN: 120 (default)
+    * RATE_LIMIT_HASH_PER_MIN: 100 (default)
+    * RATE_LIMIT_GLOBAL_PER_MIN: 200 (default)
+  - Authentication failure rate limit:
+    * RATE_LIMIT_AUTH_FAIL_PER_MIN: 60 (default)
+    * Tracks by IP + User-Agent fingerprint
+    * Prevents brute force API key guessing
+
+
+5.6 Secrets Management
+-----------------------
+
+Secrets Inventory:
+  1. API Keys (api-keys.local.json)
+     - Purpose: External client authentication
+     - Storage: File mounted read-only to API Gateway container
+     - Rotation: Manual (replace file, restart gateway)
+  
+  2. Internal Service Token (INTERNAL_SERVICE_TOKEN)
+     - Purpose: Internal service authentication
+     - Storage: Environment variable (set via docker-compose.yml)
+     - Rotation: Manual (update environment, restart all services)
+  
+  3. RSA Private Key (keys/rsa_private.pem)
+     - Purpose: Classical signature generation
+     - Storage: File mounted read-only to Manifest Builder container
+     - Rotation: Manual (generate new key, restart service, sign new manifests)
+  
+  4. Dilithium Secret Key (keys/dilithium_sk.bin)
+     - Purpose: Post-quantum signature generation
+     - Storage: File mounted read-only to Manifest Builder container
+     - Rotation: Manual (same as RSA)
+  
+  5. MinIO Credentials (MINIO_*_ACCESS_KEY, MINIO_*_SECRET_KEY)
+     - Purpose: Object storage authentication
+     - Storage: Environment variables
+     - Rotation: Manual (update MinIO admin, update environment, restart services)
+  
+  6. PostgreSQL Password (POSTGRES_PASSWORD, DATABASE_URL)
+     - Purpose: Database authentication
+     - Storage: Environment variables
+     - Rotation: Manual (update PostgreSQL password, update DATABASE_URL, restart services)
+
+Secrets Distribution:
+  - Local development: .env file (untracked by git)
+  - Production: Environment variables set by orchestrator (Kubernetes secrets, etc.)
+
+Secret Generation (scripts/generate_secrets.sh, not included):
+  export INTERNAL_SERVICE_TOKEN="$(openssl rand -hex 32)"
+  export MINIO_ROOT_PASSWORD="$(openssl rand -hex 24)"
+  export POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+
+
+5.7 Cryptographic Design Choices and Rationale
+-----------------------------------------------
+
+Hash Algorithms:
+  - SHA-256: NIST-approved, widely deployed, FIPS 140-2 compliant
+  - Keccak-256: SHA-3 finalist, quantum-resistant hash function
+
+Choice Rationale: SHA-256 provides baseline for comparison with classical
+signing. Keccak-256 provides quantum-resistant alternative for full post-quantum
+stack (Keccak + Dilithium).
+
+Signature Algorithms:
+  - RSA-PSS (4096-bit key, SHA-256 hash):
+    * NIST-recommended classical signature scheme
+    * Probabilistic padding prevents signature forgery
+    * 4096-bit key provides ~150-bit security level
+  
+  - Dilithium3 (NIST Level 3):
+    * NIST post-quantum signature finalist (selected for standardization)
+    * Lattice-based (Module-LWE hardness assumption)
+    * Level 3 provides ~190-bit quantum security (matches AES-256)
+
+Hybrid Signature Strategy:
+  - Independent execution: RSA-PSS and Dilithium both sign same canonical manifest
+  - AND semantics: Both signatures must verify for overall success
+  - Parallel timing: Both sign operations timed independently for comparison
+
+Rationale: Independent hybrid approach enables apples-to-apples timing comparison
+without commingling classical and PQC execution. AND semantics provides "belt
+and suspenders" security (compromise requires breaking BOTH algorithms).
+
+Canonical Manifest Design:
+  - CBOR deterministic serialization (RFC 8949)
+  - Domain separation: domain_sep || 0x00 || canonical_cbor
+  - Manifest content frozen at signing (immutable schema)
+
+Rationale: Deterministic serialization ensures identical manifest content
+produces identical signatures across platforms and implementations. Domain
+separation prevents cross-protocol signature reuse attacks.
+
+Key Management:
+  - RSA keys: PKCS#8 PEM format (OpenSSL compatible)
+  - Dilithium keys: Raw binary format (pqcrypto-dilithium format)
+  - Keys stored on host filesystem, mounted read-only to containers
+  - No key escrow or splitting (single-key control)
+
+Rationale: Research prototype scope accepts single-key risk. Production
+deployment would require HSM storage, key ceremony, and escrow procedures.
+
+
+5.8 Common Vulnerability Considerations
+----------------------------------------
+
+5.8.1 Path Traversal (CWE-22)
+Threat: Attacker provides file_path="../../../etc/passwd" to read arbitrary files
+Mitigation:
+  - Canonicalization: std::fs::canonicalize resolves .. and symlinks
+  - Prefix validation: Ensure canonical path starts with allowed directory
+  - Explicit rejection: Return 403 Forbidden if path escapes directory
+Status: Mitigated
+
+5.8.2 Symbolic Link Attacks (CWE-61)
+Threat: Attacker creates symlink to /etc/shadow, uploads file via symlink
+Mitigation:
+  - FOLLOW_SYMLINKS=false (default, enforced)
+  - Canonicalization rejects symlinks in path components
+  - Post-open metadata check ensures file type is regular file
+Status: Mitigated
+
+5.8.3 TOCTOU (Time-of-Check, Time-of-Use) (CWE-367)
+Threat: Attacker replaces file between validation and hash computation
+Mitigation:
+  - File opened atomically (tokio::fs::File::open)
+  - Metadata checked AFTER opening (file already locked)
+  - File read from opened descriptor (no re-lookup)
+Status: Mitigated (residual risk: attacker with filesystem write access)
+
+5.8.4 SQL Injection (CWE-89)
+Threat: Attacker provides malicious input to SQL queries
+Mitigation:
+  - Parameterized queries (SQLx query! macro with compile-time validation)
+  - No dynamic query construction from user input
+  - Serde deserialization validates input structure before query
+Status: Mitigated
+
+5.8.5 Remote Code Execution (CWE-94)
+Threat: Attacker exploits deserialization, script injection, or buffer overflow
+Mitigation:
+  - No dynamic code evaluation (no eval, exec, system calls with user input)
+  - Serde deserialization is type-safe (no arbitrary object construction)
+  - Rust memory safety prevents buffer overflows
+  - No user-controlled shell commands
+Status: Mitigated (residual risk: dependency vulnerabilities)
+
+5.8.6 Denial of Service (CWE-400)
+Threat: Attacker exhausts resources (CPU, memory, storage, network)
+Mitigation:
+  - Rate limiting: Per-key token bucket limits (governor crate)
+  - Upload size limits: MAX_UPLOAD_SIZE, MAX_FILE_SIZE
+  - Storage quota: MAX_UPLOAD_STORAGE_PER_KEY per key fingerprint
+  - Request body limits: MAX_JSON_BODY_SIZE
+  - Concurrency limits: MAX_CONCURRENT_VERIFY (semaphore-based)
+  - Connection timeouts: 5s connect, 30s request
+  - Automatic upload pruning: UPLOAD_RETENTION_HOURS
+Status: Partially mitigated (residual risk: distributed DoS, resource amplification)
+
+5.8.7 Insecure Deserialization (CWE-502)
+Threat: Attacker exploits unsafe deserialization to execute code
+Mitigation:
+  - Serde deserialization is type-safe (no arbitrary code execution)
+  - JSON parsing with strict schema validation
+  - No pickle, eval, or dynamic deserialization
+Status: Mitigated
+
+5.8.8 Insufficient Authentication (CWE-287)
+Threat: Attacker bypasses authentication to access protected resources
+Mitigation:
+  - API key required for all external requests (REQUIRE_AUTH=true by default)
+  - Internal service token required for internal requests
+  - No anonymous access (except health endpoints)
+  - Authentication middleware applied to all protected routes
+Status: Mitigated (residual risk: weak API key generation by users)
+
+5.8.9 Broken Access Control (CWE-285)
+Threat: Attacker accesses resources belonging to other users
+Mitigation:
+  - Upload paths scoped by key_fingerprint (isolation between users)
+  - Manifest ownership enforced (owner_key_fingerprint indexed in DB)
+  - Role-based access control (admin, operator, readonly)
+  - Path validation ensures user cannot access outside their directory
+Status: Mitigated
+
+5.8.10 Supply Chain Attacks (CWE-1104)
+Threat: Compromised dependency introduces malicious code
+Mitigation:
+  - Cargo.lock pins exact dependency versions
+  - cargo-audit for known vulnerability scanning (manual, not automated)
+  - Minimal dependency footprint (avoid unnecessary crates)
+Status: Partially mitigated (residual risk: undetected compromised dependencies)
+
+
+5.9 Mitigation Strategies
+--------------------------
+
+Defense in Depth Layers:
+  1. Network layer: TLS encryption, CORS policy, firewall (Docker network isolation)
+  2. Application layer: Authentication, role-based access control, rate limiting
+  3. Input validation layer: Path sanitization, size limits, type validation
+  4. Filesystem layer: Canonicalization, symlink rejection, TOCTOU mitigation
+  5. Database layer: Parameterized queries, indexed ownership fields
+  6. Container layer: Non-root user, capability dropping, no-new-privileges
+
+Security Testing Strategy (Recommended for Production):
+  - Penetration testing: Manual testing of path traversal, injection, DoS
+  - Fuzzing: AFL/LibFuzzer on deserialization and file parsing
+  - Static analysis: Clippy, cargo-audit, Semgrep
+  - Dependency scanning: cargo-audit in CI pipeline
+  - Code review: Peer review of crypto code and security-critical paths
+
+Incident Response (Out of Scope for Research Prototype):
+  - Logging: Structured logging with tracing crate (request ID correlation)
+  - Monitoring: Health endpoints, metrics export (not implemented)
+  - Alerting: Rate limit violations, authentication failures (not implemented)
+  - Revocation: Manifest revocation support (revoked_at timestamp)
+
+
+================================================================================
+SECTION 6: PERFORMANCE AND SCALABILITY
+================================================================================
+
+6.1 Bottleneck Analysis
+------------------------
+
+Hash Computation (Hasher Service):
+  - CPU-bound: Hash computation is single-threaded per request
+  - I/O-bound: Large file reads from filesystem (8KB buffer)
+  - Bottleneck: For files >10MB, I/O dominates; for files <1MB, CPU dominates
+  - Scaling: Horizontal scaling of hasher service instances (stateless)
+
+Signature Generation (Manifest Builder Service):
+  - CPU-bound: RSA-PSS and Dilithium signing are compute-intensive
+  - Memory-bound: Dilithium signing allocates ~3KB signature buffer
+  - Bottleneck: Dilithium signing ~10-50x slower than RSA (observed)
+  - Scaling: Horizontal scaling of manifest builder instances (stateless)
+
+Manifest Verification (Manifest Builder Service):
+  - CPU-bound: Signature verification compute-intensive
+  - Database-bound: Manifest fetch from PostgreSQL (indexed query)
+  - Network-bound: Object fetch from MinIO (if verify_object=true)
+  - Bottleneck: For large files, MinIO fetch dominates; for small files, crypto dominates
+  - Scaling: Horizontal scaling + read replicas (PostgreSQL), caching (not implemented)
+
+Upload Storage (API Gateway):
+  - I/O-bound: Multipart upload writes to filesystem
+  - Storage-bound: Quota enforcement (prune + measure)
+  - Bottleneck: Filesystem contention under concurrent uploads
+  - Scaling: Shared volume limits horizontal scaling (requires distributed filesystem)
+
+Database (PostgreSQL):
+  - Query-bound: Manifest fetch by request_id (indexed, fast)
+  - Write-bound: Manifest insert (transaction overhead)
+  - Bottleneck: For high write throughput, transaction serialization
+  - Scaling: Vertical scaling (single writer), read replicas for verification
+
+Object Storage (MinIO):
+  - Network-bound: S3 API latency (~10-50ms per request)
+  - Throughput-bound: Multipart upload for large objects
+  - Bottleneck: Network bandwidth for >10MB objects
+  - Scaling: Horizontal scaling (MinIO distributed mode), CDN for reads
+
+
+6.2 Horizontal vs Vertical Scaling Considerations
+--------------------------------------------------
+
+Stateless Services (Easy to Scale Horizontally):
+  - API Gateway: No shared state (rate limiters use keyed state)
+  - Hasher Service: No shared state (MinIO is external)
+  - Manifest Builder Service: No shared state (PostgreSQL is external)
+
+Scalability Approach:
+  - Horizontal: Deploy N instances behind load balancer
+  - Session affinity: Not required (stateless)
+  - Configuration: Environment variables consistent across instances
+
+Stateful Services (Harder to Scale Horizontally):
+  - PostgreSQL: Single writer (scaling requires read replicas or sharding)
+  - MinIO: Distributed mode requires cluster setup (out of scope)
+  - Upload Storage: Shared volume /data/uploads limits horizontal scaling
+
+Recommended Scaling Strategy (Production):
+  1. Start with vertical scaling (larger instance, more CPU/RAM)
+  2. Add API Gateway instances behind load balancer (round-robin)
+  3. Add Hasher/Manifest Builder instances as needed (independent scaling)
+  4. PostgreSQL: Vertical scaling first, read replicas second
+  5. MinIO: Vertical scaling first, distributed mode if needed
+
+
+6.3 Caching Strategy
+---------------------
+
+Current Implementation: No caching
+
+Potential Caching Opportunities (Future Work):
+  1. Manifest Lookup Cache (Redis):
+     - Key: request_id
+     - Value: SignedManifest JSON
+     - TTL: MAX_MANIFEST_AGE_HOURS
+     - Benefit: Reduces PostgreSQL query load for repeated verifications
+  
+  2. Object Hash Cache (Redis):
+     - Key: storage_bucket || "/" || storage_key
+     - Value: hash + algorithm
+     - TTL: Indefinite (immutable objects)
+     - Benefit: Avoids re-hashing for repeated verification
+  
+  3. Public Key Cache (In-Memory):
+     - Key: key_id (RSA or Dilithium)
+     - Value: Parsed public key object
+     - TTL: Process lifetime
+     - Benefit: Avoids repeated PEM/binary parsing
+
+Caching Trade-offs:
+  - Pro: Reduced latency, lower database load
+  - Con: Increased complexity, cache invalidation complexity, memory overhead
+
+
+6.4 Concurrency Model
+----------------------
+
+Asynchronous I/O (Tokio Runtime):
+  - All services use async/await (tokio runtime)
+  - Non-blocking I/O for file reads, network requests, database queries
+  - Work-stealing scheduler (multi-threaded by default)
+
+Concurrency Limits:
+  - API Gateway: MAX_CONCURRENT_VERIFY semaphore (default: 4)
+    * Prevents verify request amplification (fetch from MinIO is expensive)
+  - Rate Limiting: Per-key token bucket (governor crate)
+    * RATE_LIMIT_GLOBAL_PER_MIN: 200 requests/minute per key
+  - Database Connection Pool: SQLx default (configurable)
+  - HTTP Client Connection Pool: Reqwest default (per-host limit)
+
+Thread Pool Configuration:
+  - Tokio worker threads: Runtime default (num_cpus)
+  - Blocking thread pool: Tokio default (512 threads)
+  - Recommendation: Set TOKIO_WORKER_THREADS for predictable performance
+
+Concurrency-Related Risks:
+  - Race conditions: Mitigated by atomic file operations and database transactions
+  - Deadlocks: No locks held across service boundaries (stateless design)
+  - Resource exhaustion: Mitigated by semaphores, rate limits, connection pools
+
+
+================================================================================
+SECTION 7: DESIGN TRADE-OFFS
+================================================================================
+
+7.1 Key Architectural Decisions
+--------------------------------
+
+Decision 1: Microservices vs Monolith
+  Chosen: Microservices (API Gateway, Hasher, Manifest Builder)
+  Rationale:
+    - Independent timing measurement: Hashing and signing stages must be
+      timed independently without interference.
+    - Security isolation: Cryptographic keys only accessible to Manifest Builder.
+    - Future extensibility: New hash or signature algorithms can be added
+      as separate services.
+  Trade-off:
+    - Pro: Clear service boundaries, independent scalability
+    - Con: Increased operational complexity, network latency overhead
+
+Decision 2: Synchronous REST vs Asynchronous Messaging
+  Chosen: Synchronous REST (HTTPS + JSON)
+  Rationale:
+    - Request/response semantics: Cryptographic operations require immediate
+      confirmation (can't defer signature generation).
+    - Simplicity: No message broker, no queue management, no retry logic.
+    - Academic scope: Benchmark latency includes full round-trip time.
+  Trade-off:
+    - Pro: Simple, predictable, easy to measure
+    - Con: No natural retry mechanism, no backpressure handling
+
+Decision 3: Content-Addressed Storage vs Centralized Index
+  Chosen: Content-addressed storage (MinIO with hash-based keys)
+  Rationale:
+    - Immutability: Objects addressed by hash cannot be tampered.
+    - Deduplication: Identical objects stored once.
+    - Integrity: Object key is cryptographic proof of content.
+  Trade-off:
+    - Pro: Simple, immutable, verifiable
+    - Con: No metadata search (must query PostgreSQL for manifest first)
+
+Decision 4: Hybrid Signature (Independent) vs Hybrid Signature (Nested)
+  Chosen: Independent execution (both algorithms sign same canonical manifest)
+  Rationale:
+    - Timing comparison: Can measure RSA and Dilithium independently without
+      commingling execution.
+    - Security clarity: Both signatures verifiable independently.
+    - Academic validity: Overhead of hybrid is sum of both, not nested.
+  Trade-off:
+    - Pro: Clean separation, independent timing
+    - Con: Larger signature size (both signatures included)
+
+Decision 5: Client-Side vs Server-Side Hashing
+  Chosen: Server-side hashing (Hasher Service)
+  Rationale:
+    - Security: Client cannot forge hash (no client-side crypto trust).
+    - Measurement: Server-side timing is ground truth.
+    - Integrity: Ensures file uploaded matches file hashed.
+  Trade-off:
+    - Pro: Security, measurement validity
+    - Con: Network upload overhead (client must upload full file)
+
+Decision 6: PostgreSQL vs NoSQL (MongoDB, DynamoDB)
+  Chosen: PostgreSQL
+  Rationale:
+    - Structured schema: Manifests have well-defined structure.
+    - ACID transactions: Manifest insertion must be atomic.
+    - Indexing: Fast lookup by request_id, owner_key_fingerprint, hash.
+    - SQL familiarity: Standard query language, mature tooling.
+  Trade-off:
+    - Pro: ACID, indexing, mature
+    - Con: Harder to scale horizontally (vs DynamoDB)
+
+Decision 7: Canonical Manifest (CBOR) vs JSON
+  Chosen: CBOR (Concise Binary Object Representation)
+  Rationale:
+    - Deterministic serialization: RFC 8949 defines canonical encoding.
+    - Compact: Smaller than JSON (but not primary concern).
+    - Standardized: IETF standard, multiple implementations.
+  Trade-off:
+    - Pro: Deterministic, compact, standardized
+    - Con: Binary format (not human-readable without tooling)
+
+
+7.2 Alternatives Considered
+----------------------------
+
+Alternative 1: Monolithic Backend
+  Description: Single Rust binary with all logic (hash, sign, verify)
+  Rejected Because:
+    - Timing interference: Hash and sign operations in same process could
+      interfere (CPU cache contention, memory allocator overhead).
+    - Security: All keys in same process (larger attack surface).
+    - Scalability: Can't scale hash and sign independently.
+
+Alternative 2: Asynchronous Messaging (RabbitMQ, Kafka)
+  Description: Gateway publishes jobs to queue, workers consume
+  Rejected Because:
+    - Complexity: Requires message broker, retry logic, dead-letter queues.
+    - Latency measurement: Round-trip time includes queue latency (less clean).
+    - Academic scope: Synchronous flow easier to reason about for benchmarking.
+
+Alternative 3: Client-Side Hashing (Web Crypto API)
+  Description: Browser computes hash, sends hash to server for signing
+  Rejected Because:
+    - Security: Client-side crypto not trusted (user can forge hash).
+    - Measurement: Can't measure client hardware diversity in benchmarks.
+    - Integrity: Server can't verify file matches hash.
+
+Alternative 4: Nested Hybrid Signature
+  Description: Sign RSA signature with Dilithium (or vice versa)
+  Rejected Because:
+    - Timing interference: Can't measure RSA and Dilithium independently.
+    - Security confusion: Unclear which signature provides what guarantee.
+    - Academic validity: Overhead is nested, not additive.
+
+Alternative 5: Blockchain-Based Manifest Storage
+  Description: Store manifests on blockchain for auditability
+  Rejected Because:
+    - Complexity: Requires blockchain client, gas fees, consensus.
+    - Performance: Blockchain writes are slow (seconds to minutes).
+    - Academic scope: Auditability is secondary to performance comparison.
+
+Alternative 6: Hardware Security Module (HSM) for Keys
+  Description: Store RSA and Dilithium keys in HSM
+  Rejected Because:
+    - Cost: HSM hardware is expensive.
+    - Complexity: PKCS#11 integration is complex.
+    - Academic scope: Research prototype doesn't require HSM-level security.
+
+
+7.3 Why Current Approach Was Chosen
+------------------------------------
+
+Decisional Framework:
+  1. Academic validity: Measurements must be defensible and reproducible.
+  2. Security baseline: Mitigate common vulnerabilities (path traversal, injection).
+  3. Simplicity: Minimize moving parts to reduce debugging complexity.
+  4. Extensibility: Enable future addition of new algorithms or signature schemes.
+
+Current Approach Advantages:
+  - Clear service boundaries enable independent timing measurement.
+  - Synchronous REST provides predictable latency measurement.
+  - Content-addressed storage ensures immutable, verifiable objects.
+  - Independent hybrid signatures enable clean comparison of classical vs PQC.
+  - Server-side cryptography ensures measurements are hardware-consistent.
+  - PostgreSQL provides ACID guarantees and fast indexed queries.
+  - CBOR canonical manifests ensure reproducible signatures.
+
+Current Approach Limitations (Accepted for Research Prototype Scope):
+  - No horizontal scaling of upload storage (shared volume).
+  - No caching (acceptable latency for academic measurements).
+  - No distributed tracing (manual correlation via request_id).
+  - No automated key rotation (manual process).
+  - No enterprise hardening (acceptable for controlled lab environment).
+
+
+================================================================================
+CONCLUSION
+================================================================================
+
+This architecture specification documents the technical design of a post-quantum
+cryptography signing system purpose-built for academic research. The system
+achieves its core objective of providing measurable, reproducible performance
+comparisons between classical, post-quantum, and hybrid cryptographic approaches
+through careful architectural decomposition, security hardening, and instrumentation.
+
+Key Architectural Strengths:
+  - Independent timing measurement of cryptographic stages
+  - Robust input validation and path sanitization
+  - Content-addressed immutable object storage
+  - Deterministic canonical manifest generation
+  - Structured metric export for statistical analysis
+
+Acknowledged Limitations:
+  - Research prototype scope (not production-ready)
+  - Manual key management (no HSM integration)
+  - Limited horizontal scalability (shared upload volume)
+  - No distributed tracing or monitoring
+
+This specification serves as the authoritative technical reference for
+implementation review, security audit, and dissertation appendix inclusion.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

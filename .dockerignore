@@ -1,0 +1,17 @@
+target/
+.git/
+.gitignore
+.env
+.env.local
+*.md
+!README.md
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+node_modules/
+flycheck*/
+Dockerfile
+docker-compose.yml

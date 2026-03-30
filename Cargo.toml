@@ -1,0 +1,75 @@
+[package]
+name = "pqc-hons"
+version = "0.1.0"
+edition = "2021"
+default-run = "pqc-hons"
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "multipart",
+    "rustls-tls",
+] }
+tokio = { version = "1.49.0", features = [
+    "rt-multi-thread",
+    "macros",
+    "fs",
+    "time",
+    "process",
+] }
+anyhow = "1.0.100"
+sha2 = "0.10"
+axum = { version = "0.8", features = ["multipart"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive", "env"] }
+csv = "1.3"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tower-http = { version = "0.5", features = ["trace", "limit", "cors"] }
+governor = "0.6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rsa = { version = "0.9", features = ["sha2"] }
+rand = "0.8"
+base64 = "0.21"
+pqcrypto-dilithium = "0.5"
+pqcrypto-traits = "0.3"
+aws-config = { version = "1.6.1", default-features = false, features = [
+    "rt-tokio",
+    "rustls",
+] }
+aws-credential-types = "1.2.1"
+aws-sdk-s3 = { version = "1.85.0", default-features = false, features = [
+    "rt-tokio",
+    "rustls",
+] }
+sqlx = { version = "0.8.3", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "chrono",
+    "json",
+] }
+ciborium = "0.2"
+sha3 = "0.10"
+libc = "0.2"
+
+[[bin]]
+name = "api-gateway"
+path = "src/bin/api_gateway.rs"
+
+[[bin]]
+name = "hasher-service"
+path = "src/bin/hasher_service.rs"
+
+[[bin]]
+name = "manifest-builder-service"
+path = "src/bin/manifest_builder_service.rs"
+
+[[bin]]
+name = "gen-dilithium"
+path = "src/bin/gen_dilithium.rs"
+
+[[bin]]
+name = "benchmark-cli"
+path = "src/bin/benchmark_cli.rs"

@@ -1,0 +1,522 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{verbatim}
+\usepackage[toc,page]{appendix}
+
+% Set up BibLaTeX efficiently
+\usepackage[numbers,sort&compress]{natbib}
+
+\usepackage{fancyhdr}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\footrulewidth}{0.5pt}
+\setlength{\headheight}{15pt}
+\fancyhead[L]{Anna Kudrych}
+\fancyhead[R]{SOC10101 - Honours Project}
+\fancyfoot[L]{}
+\fancyfoot[C]{\thepage}
+
+\usepackage[hidelinks]{hyperref}
+
+\begin{document}
+
+\input{./Dissertation-Title.tex}
+\input{./Dissertation-Dec.tex}
+\pagebreak
+\input{./Dissertation-DP.tex}
+\pagebreak
+
+\begin{abstract}
+abstract
+\end{abstract}
+\pagebreak
+
+\tableofcontents
+\newpage
+
+\listoftables
+\newpage
+
+\listoffigures
+\newpage
+
+\section*{Acknowledgements}
+Insert acknowledgements here.
+\subsection*{}
+I would like to thank my cat, dog and family.
+\newpage
+
+% =========================
+% 1. INTRODUCTION
+% =========================
+
+\section{Introduction and Problem Context}
+
+The emergence of sufficiently effective quantum computers poses an imminent privacy and integrity risk for data protected by classical public-key cryptography~\cite{nist-fips-203-2024,nist-fips-204-2024}. The standard security mechanisms nowadays, such as RSA and elliptic curve cryptography, rely on integer factorisation and discrete logarithm. Those are computational problems that are challenging to overcome using traditional computational methods, but were proven to be easily tractable by quantum attackers using Shor's algorithm~\cite{shor1997}. However, despite the lack of availability of technology capable of cracking it now, the vulnerability is not merely theoretical. Adversaries employing the tactic of ``harvest now, decrypt later'' (HNDL) attacks are already accumulating vast volumes of encrypted data today, with the intention to decrypt it once quantum computing technology is developed to an appropriate level~\cite{sectigo-hndl-2025,hashicorp-hndl-2025}. This is an immediate strategic threat, especially for cloud environments, where frequent sensitive data exchange is conducted across untrusted networks and relies on persistent key material.
+
+As a result of such a hazard, the National Institute of Standards and Technology (NIST) has completed a standardisation initiative that resulted in the first approvals of post-quantum cryptography (PQC) algorithms for use in industrial and federal deployment~\cite{nist-fips-203-2024,nist-fips-204-2024,nist-fips-205-2024}. Consequently, FIPS 203 (ML-KEM), FIPS 204 (ML-DSA), and FIPS 205 (SLH-DSA) were published in August 2024, marking a strong achievement in the transition away from quantum-susceptible cryptographic methods. The urgency for such a move is reinforced by regulatory bodies: the U.S. National Security Memorandum NSM-10 sets 2035 as the target year for federal systems to complete the transition to quantum-safe infrastructure~\cite{nsm-10-2022}. Additionally, guidance from NIST and international bodies suggests that high-risk sectors, such as finance and healthcare, should aim to complete critical migrations within the 2030-2035 timeframe to make sure they are compliant~\cite{nist-ir8547-2024,nist-nccoe-pqc-migration-2023}.
+
+For cloud workflows, integration of quantum-resistant schemes for file handling needs to be explored with deep and up-to-date knowledge of cryptographic methods and their performance trade-offs. This is further complicated by upgrading KMS architecture, testing compatibility with existing PKI and maintaining object storage integrity controls. This literature review synthesises current standards, deployment patterns, and operational best practices to inform the design and evaluation of such systems.
+
+% =========================
+% 2. BACKGROUND
+% =========================
+
+\section{Background: Threat Model and Classical Cryptography Limits}
+
+\subsection{The Quantum Threat to File Workflows}
+
+Classic public-key cryptography is a foundation of multiple functions in the cloud workflows for file handling: secure key establishment, authentication and non-repudiation and key wrapping for envelope encryption.
+
+Current industry standardised schemes, like RSA and Elliptic curve, are powerful enough to withstand brute force attacks from traditional computers. However, this is not the case for emerging quantum computers. Shor's algorithm, if implemented on a large enough quantum computer, which was estimated in 2021 to require around 20 million noisy physical qubits~\cite{gidney-ekera-2021}, would render such schemes insecure. The timescales for potential factorisation of RSA-2048 was estimated to be approximately 8 hours under these quantum resource assumptions~\cite{gidney-ekera-2021}. Grover's algorithm on the other hand, reduces the effective security of symmetric key encryption primitives like AES and SHA-2 by providing a quadratic speedup for key search, effectively halving their security level, although it does not entirely eliminate their protection~\cite{grover1996}. Consequently, to reinforce the workflows to become quantum safe, they must prioritise replacement of asymmetric cryptography but continue using symmetric where it is practical.
+
+\subsection{Harvest Now, Decrypt Later (HNDL) Risk}
+
+The HNDL risk if notably severe for cloud storage. Typically, the data is hijacked from an intercepted TLS connection to object stores like AWS S3, or from compromised data warehouses to copy entire objects. As of now, this data may have limited intelligence it can provide, the adversary may store both the ciphertext and its associated public key. Once a quantum computer, that has sufficient capabilities to solve the underlying hard problems, is introduced, decrypting the stored data becomes a matter of applying quantum algorithms to derive private keys and decrypt the data retroactively~\cite{sectigo-hndl-2025,hashicorp-hndl-2025}. This is a genuine cybersecurity concern for data, that has long retention requirements, for instance regulated financial records or intellectual property. 
+
+\subsection{Limitations of Current Standards}
+Current standards like FIPS 186-5~\cite{nist-fips-186-5-2023} that specify which algorithms can be used to generate a digital signature still rely on RSA and ECDSA, which offer little to no resistance against quantum attacks since Shor's algorithm can efficiently break both schemes. To date, this largely applies to most existing FIPS 140-2 and 140-3 certified hardware security modules (HSMs) and key management services (KMS), although PQC support is beginning to emerge in select vendor firmware~\cite{thales-mldsa-2025}. Major cloud providers like AWS and Google Cloud have begun deploying PQC features in production services. AWS implemented ML-KEM hybrid post-quantum TLS in AWS KMS, ACM and Secrets Manager as of April 2025~\cite{aws-mlkem-deployment-2025}, while Google Cloud added ML-DSA and SLH-DSA signature support to Cloud KMS in February 2025~\cite{google-cloud-kms-pqc-2025}.
+
+The X.509 certificate infrastructure also remains in transition. Standards organisations like the IETF LAMPS group are actively developing PQC certificates, including how they should be formatted and used~\cite{ietf-lamps-kyber-certs,rfc9881-mldsa-x509}. Despite progress, widespread production deployment of PQC-signed certificates by commercial certificate authorities remains limited as of early 2025, with most activity focused on pilot programs and readiness testing~\cite{digicert-pqc-progress-2024}.
+
+% =========================
+% 3. PQC LANDSCAPE
+% =========================
+
+\section{Post-Quantum Cryptography Landscape: standards from NIST}
+
+\subsection{NIST Standardisation Process (2016--2024)}
+
+In December 2016, NIST announced a public competition for the PQC algorithms standardisation and invited scientists for submissions~\cite{nist-pqc-call-2016}. In total there had been 82 candidate algorithms proposed across several algorithm families like lattice-based, code-based, multivariate and hash-based~\cite{nist-pqc-timeline}. 
+
+Following a year-long evaluation, NIST selected 26 algorithms to proceed to the second round of review in January 2019~\cite{nist-round2-2019}. These algorithms were chosen based on internal testing and public feedback. Further analysis led to NIST announcing 7 finalists with 8 alternative candidates in July 2020~\cite{nist-round3-2020}.
+
+The final round began in summer 2020 lasting approximately two years during which NIST conducted more in-depth research into theoretical and empirical practicality, as well as comparative performance benchmarks when such algorithms were implemented in various software and hardware platforms. 
+
+After careful consideration, NIST selected algorithms for the first batch of standards published in August 2024~\cite{nist-fips-203-2024,nist-fips-204-2024,nist-fips-205-2024}:
+\begin{itemize}
+  \item CRYSTALS-Kyber (ML-KEM) - standardised as FIPS 203
+  \item CRYSTALS-Dilithium (ML-DSA) - standardised as FIPS 204
+  \item SPHINCS+ (SLH-DSA) - standardised as FIPS 205
+\end{itemize}
+CRYSTALS-Kyber is a Key Encapsulation Mechanism, used to share a secret key between two peers over an insecure network. ML-DSA and SLH-DSA are digital signature schemes that provide authentication and non-repudiation.
+
+Additionally, FALCON was selected for standardisation in July 2022 with a draft standard (FIPS 206, FN-DSA) expected for publication~\cite{nist-falcon-selection-2022}.
+
+Following the fourth round of evaluation, NIST evaluated additional KEM candidates including BIKE, Classic McEliece, HQC, and SIKE. However, SIKE was broken and withdrawn in July 2022~\cite{sike-broken-2022}. In March 2025, NIST selected HQC for standardisation as a code-based alternative to ML-KEM, with a draft standard expected in 2026~\cite{nist-hqc-selection-2025,nist-ir8545-2025}. Classic McEliece and BIKE were not selected for continued standardisation.
+
+\subsection{Selected Algorithm Families}
+
+\subsubsection{Lattice-Based}
+
+Lattice-based cryptography is employed for algorithms such as ML-KEM and ML-DSA, which form the foundation of the post-quantum algorithms. The security of these schemes relies on computational hardness of Module Learning with Errors (MLWE) problem and related lattice problems including the Shortest Vector Problem (SVP) and the Closest Vector Problem (CVP)~\cite{nist-fips-203-2024,nist-fips-204-2024}. They are connected through advanced mathematical reductions. This means that attempting to break these schemes on randomly chosen (average-case) instances would require the ability to efficiently solve the hardest (worst-case) instances of well-known lattice problems. As a result, the security of these schemes is based on the long-standing hardness of lattice problems and could potentially withstand brute force attacks from quantum adversaries. Lattice-based schemes have these key advantages:
+
+\paragraph*{Strong Security Reductions.}
+The security of these schemes is built on well-established lattice problems that resist both classical and quantum attacks~\cite{nist-fips-203-2024}.
+
+\paragraph*{Broad Implementation Flexibility.}
+ML-KEM and ML-DSA run efficiently across CPUs, High-Performance Computing (HPC) servers, embedded devices and cryptographic accelerators.
+
+\paragraph*{Robustness Against Quantum Cryptanalysis.}
+Contemporary analyses show that although progress in quantum algorithms is going on, the core assumptions behind ML-KEM and ML-DSA are still not broken. For now, no known quantum algorithm threatens the standardised NIST systems at their specified security levels~\cite{nist-fips-203-2024,nist-fips-204-2024}.
+
+\subsubsection{Hash-Based Signatures}
+
+The security guarantees of SLH-DSA, standardised in NIST FIPS 205, rely on the well-established properties of hash functions, specifically their collision resistance and pre-image resistance (using hash primitives such as SHA-256 and SHAKE256)~\cite{nist-fips-205-2024}. Hash-based signature schemes like SLH-DSA depend solely on the one-wayness and collision resistance of the underlying hash algorithm. This distinguishes them from schemes whose security relies on the assumed hardness of structured algebraic problems. This field has been extensively studied in both theoretical and practical cryptanalysis for many decades.
+
+A defining feature of SLH-DSA is its stateless operation. SLH-DSA allows each signature to be generated independently of previous operations, unlike stateful hash-based signature mechanisms (such as XMSS~\cite{rfc8391-xmss} or LMS~\cite{rfc8554-lms}), which require secure management and synchronisation of signing state to prevent catastrophic key reuse or forgery~\cite{nist-sp800-208-2020}. This fundamentally eliminates issues arising from state loss, duplication, or classic desynchronisation vulnerabilities. Historically, these issues have been difficult to manage in both implementation and deployment, especially in distributed or redundant environments.
+
+Hash-based signatures follow a conservative design philosophy that relies exclusively on the security of hash functions, primitives that have existed for decades and are well-analysed, rather than on unproven or recently introduced cryptographic assumptions~\cite{nist-fips-205-2024}. Because there are no hidden structures or intricate algebraic relationships, the trust surface is reduced and the risk of unforeseen vulnerabilities is significantly minimised.
+
+Nevertheless, hash-based signatures like SLH-DSA come with notable trade-offs when compared to alternative signature schemes. The most prominent is the comparatively large signature size: for example, SLH-DSA-SHA2-128s produces signatures of approximately 7,856 bytes compared to ML-DSA-44's approximately 2,420 bytes~\cite{nist-fips-205-2024,nist-fips-204-2024}. This is particularly relevant at higher security levels or in use cases requiring optimised signing performance. Additionally, for certain parameter sets, signing and verification throughput may be lower. This affects an application's ability to operate effectively in bandwidth-constrained or latency-sensitive environments. These practical considerations must be carefully weighed against specific security requirements and system limitations.
+
+\subsection{Security Assumptions and Reductions}
+
+The security of ML-KEM and ML-DSA is fundamentally supported by the hardness of lattice problems, in particular the Module Learning with Errors (MLWE) problem and related formulations, which possess strong worst-case-to-average-case reductions~\cite{nist-fips-203-2024,nist-fips-204-2024}. These reductions allow cryptographers to demonstrate that if an adversary can solve typical (average-case) MLWE instances, as encountered in real-world cryptographic deployments, then they necessarily have the computational ability to solve the most difficult instances of core lattice problems, such as the Shortest Vector Problem (SVP) and the Closest Vector Problem (CVP).
+
+As a result of this property, lattice-based schemes offer stronger security guarantees than traditional public-key cryptosystems like RSA or elliptic-curve Diffie–Hellman (ECDH). These classical cryptosystems are usually based on unproven hardness assumptions concerning average-case instances, without analogous worst-case reductions. The robustness and rigour of these reductions form a key foundation for the trust placed in ML-KEM and ML-DSA as post-quantum primitives. Because of this, they are less susceptible to unexpected breakthroughs in classical or quantum algorithms targeting randomly chosen instances.
+
+% =========================
+% 4. SECURE FILE HANDLING IN CLOUD WORKFLOWS
+% =========================
+
+\section{Secure File Handling in Cloud Workflows: Requirements and Controls}
+
+\subsection{File Lifecycle in the Cloud}
+
+A typical secure file workflow in cloud-based infrastructure comprises several distinct phases, each requiring cryptographic protection and integrity verification. The general pattern follows an envelope encryption architecture, wherein a data encryption key (DEK) is used to encrypt file content locally, while a key encryption key (KEK) managed by a cloud key management service (KMS) is employed to protect the DEK itself~\cite{aws-mlkem-deployment-2025}.
+
+The complete workflow proceeds as follows. During the \textbf{upload phase}, the client generates or retrieves a data encryption key and encrypts the file content locally. The resulting ciphertext is uploaded to object storage infrastructure (such as AWS S3 or Google Cloud Storage), while the DEK itself is wrapped (encrypted) using a KEK retrieved from the KMS. Both the encrypted file and the wrapped DEK are stored, with the wrapped DEK typically embedded in object metadata or maintained in a separate key store~\cite{aws-mlkem-deployment-2025}.
+
+In the \textbf{storage phase}, the object storage service computes and stores cryptographic checksums to ensure data integrity at rest. Modern cloud storage platforms support multiple checksum algorithms, including MD5, SHA-256, CRC32C, and the newer CRC64NVME, which are computed upon object ingestion and verified during subsequent retrieval operations~\cite{aws-s3-checksums-2024,aws-s3-crc64-2024}. These checksums protect against silent data corruption, bit rot, and transmission errors during internal replication or migration operations.
+
+\textbf{Access control and audit} mechanisms are integral to the workflow. All access to objects, including read, write, and delete operations, is logged to an audit trail. To ensure non-repudiation and tamper-evidence, log entries and manifest files may be signed using digital signatures or protected using message authentication codes (MACs). This allows organizations to demonstrate compliance with regulatory requirements and to detect unauthorised modifications to audit records~\cite{aws-cloudtrail-integrity-2023}.
+
+During the \textbf{download phase}, the client retrieves the encrypted object and its associated wrapped DEK. The client presents appropriate credentials to the KMS, which unwraps the DEK using the KEK. The client then decrypts the file locally and verifies its integrity by recomputing the checksum and comparing it against the stored value. Any mismatch triggers an integrity violation alert~\cite{aws-s3-integrity-verification-2024}.
+
+Finally, the \textbf{chain of custody} is maintained through comprehensive logging of all interactions. Each operation records the identity of the principal (user or service), the action performed, the timestamp, and the resource affected. In high-assurance environments, these logs themselves are signed using digital signatures to prevent tampering and to support forensic analysis~\cite{nist-sp800-92-2006}.
+
+\subsection{Security Requirements for Cloud File Workflows}
+
+Table~\ref{tab:security-requirements} summarises the core security requirements for quantum-safe cloud file workflows, the cryptographic mechanisms employed to satisfy each requirement, and the implications for post-quantum cryptography deployment.
+
+\begin{table}[htbp]
+\centering
+\caption{Security requirements for quantum-safe cloud file workflows}
+\label{tab:security-requirements}
+\begin{tabular}{lll}
+\toprule
+\textbf{Requirement} & \textbf{Mechanism} & \textbf{PQC Implications} \\
+\midrule
+Confidentiality & DEK wrapped by KEK & KEK derivation must use ML-KEM \\
+Integrity & Checksums; manifest signatures & ML-DSA or SLH-DSA signatures \\
+Authenticity & Signatures on metadata, logs & PQC signatures required \\
+Non-Repudiation & Digital signatures & ML-DSA or SLH-DSA signatures \\
+Key Management & HSM/KMS stored keys & KMS must support PQC \\
+Auditability & Immutable signed logs & Log entries signed with PQC \\
+Chain of Custody & Custody record signatures & Timestamps + PQC signatures \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Confidentiality} is achieved through symmetric encryption of file data using a DEK, which is itself protected by a KEK managed in a hardware security module (HSM) or cloud KMS. In a post-quantum context, the KEK must be established or derived using a quantum-resistant key encapsulation mechanism, specifically ML-KEM as standardised in FIPS 203, to prevent future quantum adversaries from recovering the KEK and subsequently decrypting archived DEKs~\cite{nist-fips-203-2024,aws-mlkem-kms-2025}.
+
+\textbf{Integrity} is maintained through cryptographic checksums computed over file content and through digital signatures applied to manifests and metadata. Post-quantum signature schemes (ML-DSA or SLH-DSA) must replace classical ECDSA or RSA-PSS signatures to ensure that integrity assertions remain verifiable even after the advent of cryptographically relevant quantum computers~\cite{nist-fips-204-2024,nist-fips-205-2024}.
+
+\textbf{Authenticity} and \textbf{non-repudiation} rely on digital signatures that bind a file, log entry, or manifest to the identity of the signer. Because classical signature schemes are vulnerable to quantum attacks, organisations must transition to ML-DSA or SLH-DSA to provide long-term authenticity guarantees~\cite{nist-fips-204-2024,nist-fips-205-2024}.
+
+\textbf{Key management} is the central control point for all cryptographic operations. Cloud KMS and HSM infrastructure must be upgraded to support post-quantum key generation, storage, and operational use. As of mid-2025, AWS KMS supports ML-KEM hybrid key agreement and ML-DSA signatures, while Google Cloud KMS offers ML-DSA-65 and SLH-DSA-SHA2-128S in preview~\cite{aws-kms-mldsa-2025,google-cloud-kms-pqc-2025}.
+
+\textbf{Auditability} requires that all security-relevant events be logged in an immutable, tamper-evident manner. Log entries must be signed using post-quantum digital signatures to ensure that audit trails remain trustworthy throughout their retention period, which may extend for decades in regulated industries~\cite{nist-sp800-92-2006}.
+
+\textbf{Chain of custody} establishes a verifiable record of all parties who have accessed or modified a file. Each custody transfer is timestamped and signed, creating a linked sequence of signed records. Post-quantum signatures are essential to preserve the long-term validity of custody chains, particularly for legal or regulatory proceedings~\cite{nist-sp800-161-2022}.
+
+% =========================
+% 5. QUANTUM-RESISTANT PRIMITIVES FOR THE WORKFLOW
+% =========================
+
+\section{Quantum-Resistant Primitives for the Workflow}
+
+\subsection{Key Establishment: ML-KEM (FIPS 203)}
+
+\subsubsection{Overview}
+
+ML-KEM (Module-Lattice-Based Key-Encapsulation Mechanism), standardised in NIST FIPS 203, is derived from the CRYSTALS-Kyber submission to the NIST post-quantum cryptography competition~\cite{nist-fips-203-2024}. It is a key-encapsulation mechanism rather than a key-agreement protocol. A KEM consists of three algorithms: key generation, encapsulation, and decapsulation. The encapsulation algorithm takes a public key as input and produces a shared secret together with a ciphertext. The decapsulation algorithm uses the corresponding private key and the ciphertext to recover the same shared secret~\cite{nist-fips-203-2024}.
+
+\subsubsection{Operation}
+
+The operation of ML-KEM proceeds as follows. First, \texttt{KeyGen()} is invoked by Alice to generate a decapsulation key (private) and an encapsulation key (public). Alice transmits her encapsulation key to Bob over an insecure channel. Bob then invokes \texttt{Encaps(pk)} using Alice's public key, which generates a random shared secret and an associated ciphertext. Bob sends the ciphertext to Alice. Finally, Alice invokes \texttt{Decaps(sk, ct)} using her private key and the received ciphertext, recovering the shared secret. Both parties now possess the same shared secret, which can be used to derive symmetric keys for confidentiality and integrity protection~\cite{nist-fips-203-2024}.
+
+\subsubsection{Parameter Sets}
+
+FIPS 203 defines three parameter sets corresponding to different security levels, as summarised in Table~\ref{tab:mlkem-params}. The security categories are defined by NIST and correspond to the computational effort required to break AES or SHA-3 with equivalent key sizes~\cite{nist-fips-203-2024}.
+
+\begin{table}[htbp]
+\centering
+\caption{ML-KEM parameter sets and sizes}
+\label{tab:mlkem-params}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Parameter Set} & \textbf{Enc Key} & \textbf{Dec Key} & \textbf{Ciphertext} & \textbf{Shared Secret} & \textbf{Security} \\
+\midrule
+ML-KEM-512  & 800 B  & 1632 B & 768 B  & 32 B & Cat. 1 \\
+ML-KEM-768  & 1184 B & 2400 B & 1088 B & 32 B & Cat. 3 \\
+ML-KEM-1024 & 1568 B & 3168 B & 1568 B & 32 B & Cat. 5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Security Justification}
+
+The security of ML-KEM is based on the computational hardness of the Module Learning with Errors (MLWE) problem. Given a set of noisy linear equations over a polynomial ring, the MLWE problem requires an adversary to recover a small secret vector and a small error vector. The problem admits a worst-case to average-case reduction from the Shortest Vector Problem (SVP) in module lattices, a problem that has been extensively studied for over two decades and is believed to be intractable even for quantum adversaries~\cite{nist-fips-203-2024,regev2009-lwe}.
+
+\subsubsection{Performance and Deployment}
+
+The integration of ML-KEM into TLS 1.3 has been extensively measured. Hybrid key exchange protocols, which combine classical X25519 (Curve25519-based ECDH) with ML-KEM-768, introduce approximately 1600 additional bytes during the TLS handshake. Measurements conducted by AWS in production environments indicate that this overhead results in a throughput reduction of less than 5\% when connection pooling and persistent connections are employed~\cite{aws-mlkem-tls-performance-2024,kampanakis-pqtls-impact-2024}.
+
+Interoperability is advancing rapidly. AWS KMS, AWS Certificate Manager (ACM), and AWS Secrets Manager support ML-KEM hybrid key agreement as of April 2025~\cite{aws-mlkem-deployment-2025}. Cloudflare's WARP client supports ML-KEM (internally using the P256Kyber768Draft00 cipher suite during the transition period, with plans to adopt the final ML-KEM-768 specification)~\cite{cloudflare-warp-pqc-2025}. A gradual rollout strategy is being employed to manage compatibility and to detect middlebox interference or implementation bugs~\cite{cloudflare-warp-pqc-2025}.
+
+The hybrid approach is recommended during the transition period. Both X25519 and ML-KEM are executed in parallel, and the resulting shared secrets are combined using an approved key derivation function (such as HKDF with SHA-256 or SHA3-256). This construction ensures that the session remains secure as long as at least one of the two algorithms is unbroken~\cite{nist-sp800-227-2024}.
+
+\subsection{Signatures: ML-DSA (FIPS 204) and SLH-DSA (FIPS 205)}
+
+\subsubsection{ML-DSA (Module-Lattice-Based Digital Signature Algorithm)}
+
+ML-DSA, standardised in NIST FIPS 204, is derived from the CRYSTALS-DILITHIUM submission. It is a digital signature algorithm that provides authentication and non-repudiation. The algorithm is used to sign data (including messages, X.509 certificates, and audit log entries) and to verify that the signed data has not been tampered with and originates from a holder of the corresponding private key~\cite{nist-fips-204-2024}.
+
+\paragraph{Parameter Sets.}
+FIPS 204 defines three parameter sets, as shown in Table~\ref{tab:mldsa-params}. The parameter sets differ in public key size, private key size, signature size, and security level. Higher security levels provide greater resistance to attacks but incur larger data structures~\cite{nist-fips-204-2024}.
+
+\begin{table}[htbp]
+\centering
+\caption{ML-DSA parameter sets and sizes}
+\label{tab:mldsa-params}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Parameter Set} & \textbf{Public Key} & \textbf{Private Key} & \textbf{Signature} & \textbf{Security} \\
+\midrule
+ML-DSA-44 & 1312 B & 2560 B & 2420 B & Cat. 2 \\
+ML-DSA-65 & 1952 B & 4032 B & 3309 B & Cat. 3 \\
+ML-DSA-87 & 2592 B & 4896 B & 4627 B & Cat. 5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Operational Notes.}
+Signing is performed using the private key and a source of randomness. Verification uses the public key and the signature. ML-DSA employs a Fiat–Shamir with Aborts construction to achieve strong unforgeability under chosen-message attacks (SUF-CMA)~\cite{nist-fips-204-2024}.
+
+Implementations may employ hedged signing, which combines deterministic and probabilistic components to mitigate the risk of randomness failures. This is particularly important in constrained environments where high-quality randomness may not be consistently available~\cite{nist-fips-204-2024}.
+
+Certificate integration is progressing. Libraries such as OpenSSL (with the oqsprovider plugin), GnuTLS, and liboqs support the generation and verification of ML-DSA-signed X.509 certificates. However, as of early 2025, mainstream commercial certificate authorities have not yet issued ML-DSA-signed certificates to the public. Deployment is currently limited to self-signed certificates and internal certificate authorities used within controlled environments~\cite{digicert-pqc-progress-2024,ietf-lamps-mldsa-certs-2024}.
+
+Performance characteristics make ML-DSA suitable for high-frequency operations. ML-DSA-65 signing and verification are significantly faster than SLH-DSA equivalents, making it appropriate for use cases such as code signing, frequent audit log signing, and real-time authentication~\cite{nist-fips-204-2024}.
+
+\subsubsection{SLH-DSA (Stateless Hash-Based Digital Signature Algorithm, FIPS 205)}
+
+SLH-DSA (formerly SPHINCS+), standardised in NIST FIPS 205, is a stateless hash-based signature scheme~\cite{nist-fips-205-2024}. Unlike lattice-based schemes, it relies solely on the security properties of cryptographic hash functions and does not depend on unproven algebraic structures or number-theoretic assumptions.
+
+\paragraph{Parameter Sets (Representative Selection).}
+Table~\ref{tab:slhdsa-params} presents a representative selection of SLH-DSA parameter sets. The parameter sets are distinguished by the underlying hash function (SHA-2 or SHAKE), the security level (128-bit, 192-bit, or 256-bit), and the optimisation target (small signature size denoted by \texttt{s}, or fast signing denoted by \texttt{f})~\cite{nist-fips-205-2024}.
+
+\begin{table}[htbp]
+\centering
+\caption{SLH-DSA parameter sets and sizes (representative selection)}
+\label{tab:slhdsa-params}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Parameter Set} & \textbf{Public Key} & \textbf{Private Key} & \textbf{Signature} & \textbf{Optimisation} \\
+\midrule
+SLH-DSA-SHA2-128s  & 32 B & 64 B & 7856 B  & Small signature \\
+SLH-DSA-SHA2-128f  & 32 B & 64 B & 17088 B & Fast signing \\
+SLH-DSA-SHAKE-256s & 64 B & 128 B & 29792 B & Small signature \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Operational Notes.}
+SLH-DSA is stateless, meaning that no state synchronisation is required across multiple signing operations. This property is crucial for distributed systems and hardware security modules (HSMs), where state management can introduce synchronisation failures, duplication vulnerabilities, or catastrophic key reuse~\cite{nist-fips-205-2024,nist-sp800-208-2020}.
+
+The conservative security foundation of SLH-DSA is a significant advantage. The scheme relies exclusively on the collision resistance and preimage resistance of the underlying hash function. Because hash functions such as SHA-256 and SHAKE256 have been extensively analysed for decades, the trust surface is significantly reduced compared to schemes that depend on recently introduced mathematical structures~\cite{nist-fips-205-2024}.
+
+However, the signature sizes produced by SLH-DSA are substantially larger than those of ML-DSA. The small-signature variants (\_s) produce signatures of approximately 7–30 KB, while the fast-signing variants (\_f) produce signatures of approximately 17–50 KB, depending on the security level. This can impact bandwidth-constrained scenarios and increase storage requirements for signed audit logs or manifests~\cite{nist-fips-205-2024}.
+
+SLH-DSA is most appropriate for scenarios demanding maximum assurance (such as firmware signing or long-term archival signatures) or for environments where stateless key material is essential (where reliable state cannot be maintained)~\cite{nist-fips-205-2024}.
+
+\subsection{Hybrid Handover Patterns (X25519 + Kyber, Composite Signatures)}
+
+\subsubsection{Hybrid Key Agreement: X25519 + ML-KEM}
+
+To maintain compatibility during the transition period and to hedge against the possibility of undiscovered vulnerabilities in post-quantum algorithms, NIST Special Publication 800-227 recommends hybrid key establishment~\cite{nist-sp800-227-2024}.
+
+The hybrid mechanism operates as follows. Both parties perform an X25519 key exchange (ECDH on Curve25519) and an ML-KEM key exchange in parallel. Two independent shared secrets are obtained: $\mathit{ss}_{\text{X25519}}$ and $\mathit{ss}_{\text{ML-KEM}}$. The final shared secret is derived using a key derivation function: $\mathit{ss}_{\text{final}} = \text{KDF}(\mathit{ss}_{\text{X25519}} \| \mathit{ss}_{\text{ML-KEM}})$. The security guarantee is that the session remains secure if at least one of the two algorithms is unbroken~\cite{nist-sp800-227-2024}.
+
+\paragraph{Practical Deployment.}
+In TLS 1.3, hybrid key agreement is negotiated via the \texttt{supported\_groups} and \texttt{key\_share} extensions. The server and client negotiate a hybrid group identifier (for example, \texttt{x25519\_kyber768draft00} in early implementations, or \texttt{X25519MLKEM768} in Go 1.23 and later)~\cite{cloudflare-warp-pqc-2025}.
+
+NIST SP 800-227 specifies that a failed negotiation of the post-quantum component should result in connection failure rather than silent downgrade to classical-only cryptography, unless explicitly configured otherwise (for example, during a gradual rollout phase)~\cite{nist-sp800-227-2024}.
+
+Cloudflare's phased post-quantum rollout in the WARP client employs three API states: (1) no PQC, (2) PQC with downgrades allowed (robustness phase), and (3) PQC required (security phase). The transition to phase 3 is planned for mid-2026~\cite{cloudflare-warp-pqc-2025}.
+
+\subsubsection{Composite Signatures}
+
+Hybrid signatures combine ML-DSA with a classical signature algorithm (such as RSA-PSS or ECDSA) in X.509 certificates. Two principal approaches exist. In the \textbf{dual signature} approach, both algorithms sign the same data independently, and verification succeeds if either signature is valid. This provides a weaker security guarantee because an adversary who breaks one algorithm can forge signatures. In the \textbf{composite OID} approach, a new X.509 extension or algorithm identifier encodes both public keys and both signatures, and verification requires that both signatures are correct. This provides a stronger security guarantee~\cite{ietf-lamps-composite-sigs-2024,ietf-lamps-composite-kem-2024}.
+
+The IETF LAMPS (Limited Additional Mechanisms for PKIX and SMIME) working group is actively standardising composite and hybrid post-quantum algorithms in X.509 certificates. Draft RFCs are expected to be finalised in 2025. Current implementations in OpenSSL (with oqsprovider), GnuTLS, and liboqs support hybrid certificate generation using non-critical X.509 extensions, but mainstream PKI infrastructure does not yet validate them universally~\cite{ietf-lamps-composite-sigs-2024,ietf-lamps-composite-kem-2024}.
+
+% =========================
+% 6. COMPARATIVE ANALYSIS & TRADE-OFFS
+% =========================
+
+\section{Comparative Analysis and Trade-Offs}
+
+\subsection{Security Properties and Assumptions}
+
+Table~\ref{tab:security-comparison} compares the security properties and underlying assumptions of the three primary post-quantum algorithm families deployed in cloud file workflows.
+
+\begin{table}[htbp]
+\centering
+\caption{Security properties comparison across PQC algorithm families}
+\label{tab:security-comparison}
+\begin{tabular}{llll}
+\toprule
+\textbf{Aspect} & \textbf{ML-KEM} & \textbf{ML-DSA} & \textbf{SLH-DSA} \\
+\midrule
+Hardness Assumption & Module-LWE & Module-LWE & Hash collision resistance \\
+Worst-Case Reduction & Yes (to SVP) & Yes (to SVP) & No (average-case) \\
+Quantum Security & High (256-bit equiv.) & High (256-bit equiv.) & High (256-bit hash) \\
+Security Evidence & 20+ yrs lattice analysis & 20+ yrs lattice analysis & 30+ yrs hash analysis \\
+Known Weaknesses & Side-channel leakage & Side-channel leakage & Large signature sizes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+ML-KEM and ML-DSA both rely on the Module Learning with Errors (MLWE) problem, for which worst-case to average-case reductions have been rigorously established. These reductions provide a strong theoretical foundation, as they demonstrate that breaking an average instance of MLWE (as encountered in real-world deployments) would require the capability to solve the hardest instances of classical lattice problems such as the Shortest Vector Problem~\cite{nist-fips-203-2024,nist-fips-204-2024}.
+
+SLH-DSA, by contrast, relies exclusively on the properties of cryptographic hash functions. While this does not admit a worst-case reduction in the same sense, the security of hash functions has been extensively studied for over three decades, and no practical attacks on the collision resistance or preimage resistance of SHA-256 or SHAKE256 have been discovered~\cite{nist-fips-205-2024}.
+
+Side-channel vulnerabilities (such as timing attacks, power analysis, and cache-timing attacks) are a concern for all lattice-based schemes. Constant-time implementations and masking techniques are employed to mitigate these risks, but careful implementation is essential~\cite{nist-fips-203-2024,nist-fips-204-2024}.
+
+\subsection{Performance and Resource Costs (Latency, CPU, Memory)}
+
+\subsubsection{TLS Handshake Latency}
+
+Table~\ref{tab:tls-performance} summarises the performance overhead introduced by post-quantum algorithms in TLS 1.3 handshakes, as measured in representative production environments.
+
+\begin{table}[htbp]
+\centering
+\caption{Performance comparison: TLS handshake overhead for PQC algorithms}
+\label{tab:tls-performance}
+\begin{tabular}{lccp{5cm}}
+\toprule
+\textbf{Configuration} & \textbf{CPU Usage} & \textbf{Latency (ms)} & \textbf{Notes} \\
+\midrule
+X25519 (classical) & 0.1\% & 12–15 & Baseline \\
+X25519 + ML-KEM-768 & 0.4\% & 18–23 & $<$5\% throughput reduction \\
+ML-DSA-65 (2-cert) & Higher & Varies & 16 KB cert chain increases latency \\
+SLH-DSA-SHA2-128s & Moderate & Fast verif. & Slower signing (1–10 ms) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Empirical measurements indicate that hybrid ML-KEM introduces minimal latency overhead when connection reuse and TCP initial congestion window tuning are employed. AWS measurements in production TLS 1.3 deployments show that the time-to-last-byte (TTLB) increase remains below 5\% for high-bandwidth, stable networks, and the impact diminishes as the volume of transferred data increases~\cite{kampanakis-pqtls-impact-2024,aws-mlkem-tls-performance-2024}.
+
+\subsubsection{CPU and Memory Trade-Offs}
+
+Lattice-based algorithms (ML-KEM and ML-DSA) employ modular arithmetic on polynomial rings. Implementations leverage the Number-Theoretic Transform (NTT) to accelerate polynomial multiplication, achieving performance comparable to or better than classical ECC operations on modern processors~\cite{nist-fips-203-2024,nist-fips-204-2024}.
+
+Hash-based algorithms (SLH-DSA) rely primarily on hash computations. Memory requirements for intermediate tree nodes are modest (approximately 2–4 KB for typical parameter sets). No specialised hardware is required, and implementations can run efficiently on general-purpose CPUs~\cite{nist-fips-205-2024}.
+
+Real-world impact on modern CPUs (Intel Xeon, AMD EPYC, ARM Neoverse, circa 2020 and later) is minimal. ML-KEM and ML-DSA operations complete in microseconds to single-digit milliseconds. SLH-DSA signing is slower (1–10 ms depending on parameter set) but verification is fast (sub-millisecond)~\cite{nist-fips-203-2024,nist-fips-204-2024,nist-fips-205-2024}.
+
+\subsection{Key and Signature Sizes: Storage and Transport Impact}
+
+\subsubsection{Cloud File Workflow Implications}
+
+Table~\ref{tab:size-impact} summarises the impact of post-quantum key and signature sizes on typical cloud file workflows.
+
+\begin{table}[htbp]
+\centering
+\caption{Key and signature size impact on cloud workflows}
+\label{tab:size-impact}
+\begin{tabular}{lcp{6cm}}
+\toprule
+\textbf{Artifact} & \textbf{Typical Size} & \textbf{Impact} \\
+\midrule
+ML-KEM-768 Encapsulation Key & 1184 bytes & Acceptable in X.509 SubjectPublicKeyInfo \\
+ML-DSA-65 Signature & 3309 bytes & Audit logs grow; approx. 3.5 KB per signature \\
+SLH-DSA-SHA2-128f Signature & 17088 bytes & Suitable for low-frequency signing \\
+Hybrid Certificate (dual sig) & Approx. 8 KB & Accepted by major browsers/tools \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A concrete example illustrates the impact on audit logs. Consider a signed audit log entry comprising 100 bytes of metadata and an ML-DSA-65 signature of 3309 bytes, yielding a total of approximately 3.4 KB per entry. For a high-frequency file access log generating 1000 entries per hour, this results in approximately 3.4 MB per hour. Over a 24-hour period, this totals approximately 82 MB, which is manageable with typical cloud storage capacity and bandwidth~\cite{nist-fips-204-2024}.
+
+\subsection{Operational Deployability (KMS, HSMs, Certificate Tooling, CI/CD)}
+
+\subsubsection{Current Landscape (2024–2025)}
+
+Table~\ref{tab:service-support} summarises the current state of post-quantum cryptography support in major cloud services and cryptographic tools as of mid-2025.
+
+\begin{table}[htbp]
+\centering
+\caption{Cloud service and tool support for PQC algorithms}
+\label{tab:service-support}
+\begin{tabular}{llcp{5cm}}
+\toprule
+\textbf{Service/Tool} & \textbf{ML-KEM} & \textbf{ML-DSA} & \textbf{Notes} \\
+\midrule
+AWS KMS & Yes & Yes & ML-KEM hybrid TLS (Apr 2025); ML-DSA API (Jun 2025) \\
+AWS ACM & Yes & Roadmap & No public CAs issue ML-DSA certs yet \\
+Google Cloud KMS & Preview & Preview & ML-KEM, ML-DSA-65, SLH-DSA support \\
+Azure Key Vault & Not yet & Not yet & Timeline uncertain \\
+OpenSSL 3.x & Yes & Yes & Requires oqsprovider plugin \\
+GnuTLS & Yes & Yes & Full support via liboqs integration \\
+Cloudflare & Yes & Roadmap & ML-KEM-768 in MASQUE; signatures planned \\
+GitHub Actions / CI/CD & Limited & Limited & Custom actions needed \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+AWS KMS introduced ML-KEM hybrid TLS support in April 2025 and ML-DSA signature generation in June 2025. All three ML-DSA parameter sets (ML-DSA-44, ML-DSA-65, ML-DSA-87) are supported, and operations are performed within FIPS 140-3 Level 3 certified HSMs~\cite{aws-kms-mldsa-2025,aws-mlkem-deployment-2025}.
+
+Google Cloud KMS announced preview support for ML-KEM, ML-DSA-65, and SLH-DSA-SHA2-128S in October 2025. The service recommends a hybrid approach combining classical X25519 with ML-KEM-768 (marketed as X-Wing) for general-purpose applications~\cite{google-cloud-kms-pqc-2025}.
+
+Azure Key Vault has not yet announced post-quantum cryptography support, and the timeline for deployment remains uncertain as of late 2025.
+
+\subsubsection{Operational Challenges}
+
+Several operational challenges must be addressed during post-quantum migration:
+
+\paragraph{HSM Certification.}
+Legacy FIPS 140-2 and FIPS 140-3 certified hardware security modules do not support post-quantum key generation or cryptographic operations. Only recently introduced models (such as Crypto4A QASM, Fortanix DSM with PQC extensions, and cloud-native solutions like AWS CloudHSM with firmware updates) offer post-quantum capabilities~\cite{thales-pqc-hsm-2025,fortanix-pqc-2025}.
+
+\paragraph{Certificate Chain Validation.}
+X.509 path validation tools and TLS libraries must be updated to recognise and validate post-quantum signatures. Mainstream adoption is progressing: OpenSSL 3.0 and later (with the oqsprovider plugin), recent versions of GnuTLS, and BoringSSL (used by Google and Cloudflare) support post-quantum certificate validation. However, older tools and embedded TLS stacks do not~\cite{ietf-lamps-mldsa-certs-2024}.
+
+\paragraph{Key Rotation.}
+Key management policies must account for larger key sizes and potentially longer signature generation times. Automated key rotation in CI/CD pipelines requires post-quantum-aware tooling, which is currently limited to custom scripts and experimental integrations~\cite{aws-kms-mldsa-2025}.
+
+\paragraph{Interoperability.}
+A legacy client using only classical algorithms must be able to fall back gracefully when encountering a post-quantum-capable server. This requires careful negotiation logic in TLS, SSH, and application-layer protocols, as well as monitoring to detect and prevent downgrade attacks~\cite{nist-sp800-227-2024}.
+
+\subsection{Compliance and Interoperability Considerations}
+
+\subsubsection{Regulatory Drivers}
+
+Multiple regulatory frameworks and government mandates are driving the transition to post-quantum cryptography:
+
+\paragraph{U.S. National Security Memorandum (NSM-10, October 2022).}
+NSM-10 mandates that all U.S. federal systems transition to post-quantum cryptography by 2035. High-risk systems and national security systems are required to complete migration between 2030 and 2033~\cite{nsm-10-2022,omb-m23-02-2022}.
+
+\paragraph{NSA Commercial National Security Algorithm Suite 2.0 (CNSA 2.0).}
+The National Security Agency recommends NIST-approved post-quantum algorithms for national security systems. The transition timeline specifies that software and firmware signing must use CNSA 2.0 algorithms by 2030, traditional networking equipment (VPNs, routers) by 2030, and web browsers, servers, and cloud services by 2033. Full enforcement is mandated by December 31, 2031, with complete migration required by 2035~\cite{nsa-cnsa2-2022,nsa-cnsa2-faq-2024}.
+
+\paragraph{NCSC (UK) Post-Quantum Cryptography Migration Timeline.}
+The UK National Cyber Security Centre advises that UK government agencies must begin post-quantum migration immediately, with mandatory transition required between 2028 and 2035~\cite{ncsc-pqc-guidance-2024}.
+
+\paragraph{European Union Regulation.}
+The European Commission recommends coordinated post-quantum adoption across member states, with a target of widespread deployment by 2030~\cite{eu-pqc-recommendation-2024}.
+
+\paragraph{PCI DSS 4.0 and HIPAA.}
+Financial services and healthcare sectors are increasingly expected to document post-quantum cryptography readiness plans. Explicit mandates are pending but anticipated within 2–3 years as quantum computing capabilities advance~\cite{pci-pqc-readiness-2024}.
+
+\subsubsection{Standardisation Gaps and Interim Measures}
+
+Several standardisation gaps remain as of late 2025:
+
+\paragraph{X.509 Object Identifiers (OIDs).}
+New OIDs for post-quantum algorithms in X.509 certificates are being standardised by the IETF LAMPS working group. Final RFCs are expected in late 2025 or early 2026. Until then, non-standard OIDs or vendor-specific extensions are used, reducing interoperability~\cite{ietf-lamps-mldsa-certs-2024,ietf-lamps-composite-sigs-2024}.
+
+\paragraph{DNSSEC and TLS Deployment.}
+TLSA records (used in DNS-based Authentication of Named Entities, or DANE) and TLS certificate validation will eventually require updating to recognise post-quantum signatures. Currently, a mix of classical and post-quantum algorithms is deployed in pilot programmes, but full transition will require several years~\cite{ietf-dane-pqc-2024}.
+
+\paragraph{Quantum Key Distribution (QKD).}
+Some vendors market QKD as a quantum-safe alternative to post-quantum cryptography. However, NIST and the NSA do not currently recommend QKD for national security applications, citing deployment complexity, limited range, infrastructure requirements, and unproven advantages over mathematically based post-quantum cryptography. Post-quantum cryptography remains the endorsed path for broad deployment~\cite{nist-pqc-faq-2024,nsa-qkd-position-2023}.
+
+
+\bibliographystyle{plainnat}
+\bibliography{bibliography}
+
+\newpage
+\begin{appendices}
+\section{Project Overview}
+\begin{subappendices}
+\subsection{Example sub appendices}
+...
+\end{subappendices}
+
+\section{Second Formal Review Output}
+Insert a copy of the project review form you were given at the end of the review by the second marker
+
+\section{Diary Sheets (or other project management evidence)}
+Insert diary sheets here together with any project management plan you have
+
+\section{Appendix 4 and following}
+insert content here and for each of the other appendices, the title may be just on a page by itself, the pages of the appendices are not numbered, unless an included document such as a user manual or design document is itself pager numbered.
+\end{appendices}
+
+\end{document}

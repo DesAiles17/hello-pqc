@@ -1,0 +1,44 @@
+/target
+/output/
+/benchmark-dataset/
+/scripts/benchmark-dataset/
+/web-ui/dist/
+/web-ui/node_modules/
+
+# OS / editor noise
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+__pycache__/
+*.pyc
+
+# Cryptographic keys - NEVER COMMIT!
+keys/
+*.pem
+*.key
+*.bin
+*_sk.*
+*_pk.*
+
+# Environment files with secrets
+.env
+.env.local
+.env.production
+api-keys.local.json
+api-keys.*.local.json
+
+# Local TLS artifacts
+tls/
+
+# Database
+*.db
+*.sqlite
+
+# MinIO data
+minio-data/
+
+# Logs
+*.log

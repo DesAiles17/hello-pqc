@@ -1,0 +1,14 @@
+{
+  "REPLACE_WITH_SECURE_ADMIN_KEY": {
+    "role": "admin",
+    "description": "Template only - generate a random key and move it to api-keys.local.json"
+  },
+  "REPLACE_WITH_SECURE_OPERATOR_KEY": {
+    "role": "operator",
+    "description": "Template only - generate a random key and move it to api-keys.local.json"
+  },
+  "REPLACE_WITH_SECURE_READONLY_KEY": {
+    "role": "readonly",
+    "description": "Template only - generate a random key and move it to api-keys.local.json"
+  }
+}
