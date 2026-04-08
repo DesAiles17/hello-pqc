@@ -21,9 +21,9 @@ instrument, not a production-ready enterprise system.
 
 Core research objectives:
   - Measure and compare performance characteristics of:
-    * Classical: RSA-4096 + SHA-256
-    * Post-Quantum: Dilithium3 + Keccak-256
-    * Hybrid: RSA-4096 + Dilithium3 (independent parallel execution)
+    * Classical: RSA-PSS + SHA-256
+    * Post-Quantum: CRYSTALS-ml_dsa Round 3 + Keccak-256
+    * Hybrid: RSA-PSS + CRYSTALS-ml_dsa Round 3 (independent sequential execution in current code)
   
   - Generate reproducible performance metrics including:
     * Stage-level cryptographic operation timings
@@ -36,6 +36,15 @@ Explicitly out of scope:
   - Enterprise hardening for production deployment
   - Horizontal scaling and distributed system studies
   - User experience polish unrelated to measurement validity
+
+Current-state terminology note:
+  - The Rust crate in this repository currently implements
+    `pqcrypto-ml_dsa::ml_dsa`, i.e. CRYSTALS-ml_dsa Round 3 rather
+    than direct FIPS 204 ML-DSA interoperability.
+  - The helper script generates RSA-3072 keys even though the runtime code can
+    load other PEM key sizes.
+  - Hybrid signing is independent but sequential in the current request path,
+    which keeps stage timings deterministic for benchmarking.
 
 1.2 Core Design Goals
 ---------------------
@@ -120,12 +129,12 @@ retrievable by hash.
 
 2.1.3 Manifest Builder Service (Port 3002)
 Service Role: Cryptographic signing and signature verification
-Technology: Rust + Axum + pqcrypto-dilithium + rsa crate
+Technology: Rust + Axum + pqcrypto-ml_dsa + rsa crate
 Key Capabilities:
   - Canonical manifest generation (CBOR deterministic serialization)
-  - RSA-PSS signing (4096-bit key, SHA-256 hash)
-  - Dilithium3 signing (NIST Level 3 security parameter)
-  - Hybrid signing (independent parallel execution of both algorithms)
+  - RSA-PSS signing (helper script currently provisions 3072-bit RSA keys)
+  - CRYSTALS-ml_dsa Round 3 signing via `pqcrypto-ml_dsa::ml_dsa`
+  - Hybrid signing (independent sequential execution of both algorithms)
   - Signature verification with multi-stage validation checks
   - Manifest persistence in PostgreSQL with owner key fingerprint indexing
   - Revocation support (manifests with non-null revoked_at fail verification)
@@ -287,8 +296,8 @@ Step 3: Manifest Generation and Signing
     - Domain-separated signing message: domain_sep || 0x00 || canonical_cbor
     - Cryptographic signing based on signature_profile:
       * classical_only: RSA-PSS signature only
-      * pqc_only: Dilithium signature only
-      * hybrid: Both RSA-PSS and Dilithium (independent execution)
+      * pqc_only: ml_dsa signature only
+      * hybrid: Both RSA-PSS and ml_dsa (independent execution)
     - Sign timing recorded per algorithm
     - Signed manifest persisted to PostgreSQL (signed_manifests table)
     - Return: { core, envelope, signatures }
@@ -319,13 +328,13 @@ Step 3: Signature Verification
     - RSA-PSS signature verification (if present in manifest.signatures.rsa_pss)
       * Load RSA public key from RSA_PUBLIC_KEY file
       * Verify signature over domain-separated signing message
-    - Dilithium signature verification (if present in manifest.signatures.dilithium)
-      * Load Dilithium public key from DILITHIUM_PUBLIC_KEY file
+    - ml_dsa signature verification (if present in manifest.signatures.ml_dsa)
+      * Load ml_dsa public key from ml_dsa_PUBLIC_KEY file
       * Verify signature over domain-separated signing message
     - Signature profile satisfaction check:
       * classical_only: requires rsa_pss signature valid
-      * pqc_only: requires dilithium signature valid
-      * hybrid: requires BOTH rsa_pss AND dilithium signatures valid
+      * pqc_only: requires ml_dsa signature valid
+      * hybrid: requires BOTH rsa_pss AND ml_dsa signatures valid
 
 Step 4: Object Integrity Verification (if verify_object=true)
   Manifest Builder Service → MinIO:
@@ -396,7 +405,7 @@ External Dependencies (Rust crates):
   - sqlx: Async PostgreSQL client with compile-time query validation
   - aws-sdk-s3: S3-compatible object storage client
   - rsa: RSA cryptographic operations (PKCS#8 key loading, PSS signing)
-  - pqcrypto-dilithium: Post-quantum Dilithium signature scheme (NIST Level 3)
+  - pqcrypto-ml_dsa: Post-quantum ml_dsa signature scheme (NIST Level 3)
   - sha2, sha3: Cryptographic hash functions (SHA-256, Keccak-256)
   - serde, serde_json: Serialization/deserialization (JSON, CBOR)
   - tower-http: HTTP middleware (CORS, rate limiting, tracing)
@@ -498,8 +507,8 @@ Phase 5: Manifest Display
   1. ManifestViewer renders collapsible sections:
      - Core (canonical signed fields)
      - Envelope (audit metadata)
-     - Signatures (base64-encoded RSA-PSS and/or Dilithium signatures)
-  2. Signature sizes displayed (RSA: ~512 bytes, Dilithium: ~2420 bytes)
+     - Signatures (base64-encoded RSA-PSS and/or ml_dsa signatures)
+  2. Signature sizes displayed (RSA: ~512 bytes, ml_dsa: ~2420 bytes)
   3. Manifest JSON download button available
   4. "Sign Another File" button resets state to Phase 2
 
@@ -811,13 +820,13 @@ Client-Observed Metrics:
 Artifact Metrics:
   - manifest_size_bytes: Size of signed manifest JSON
   - rsa_signature_bytes: Size of base64-decoded RSA-PSS signature (if present)
-  - dilithium_signature_bytes: Size of base64-decoded Dilithium signature (if present)
-  - total_signature_bytes: Sum of rsa_signature_bytes + dilithium_signature_bytes
+  - ml_dsa_signature_bytes: Size of base64-decoded ml_dsa signature (if present)
+  - total_signature_bytes: Sum of rsa_signature_bytes + ml_dsa_signature_bytes
 
 Server-Side Metrics (via operations endpoint; required for formal server-attributed benchmarking):
   - server_hash_ms: Hash computation time (hasher service)
   - server_rsa_sign_ms: RSA-PSS signing time (manifest builder)
-  - server_dilithium_sign_ms: Dilithium signing time (manifest builder)
+  - server_ml_dsa_sign_ms: ml_dsa signing time (manifest builder)
   - server_verify_ms: Signature verification time (manifest builder)
   - server_total_ms: Sum of server-side operation times
 
@@ -853,8 +862,8 @@ JSON Report (benchmark-report-{timestamp}.json):
 CSV Runs (benchmark-runs-{timestamp}.csv):
   run_index,phase,condition_profile,condition_hash,condition_bucket,file_path,file_size_bytes,
   request_id,verify_ok,client_upload_ms,client_process_ms,client_verify_ms,client_total_ms,
-  manifest_size_bytes,rsa_sig_bytes,dilithium_sig_bytes,total_sig_bytes,
-  server_hash_ms,server_rsa_sign_ms,server_dilithium_sign_ms,server_verify_ms,error
+  manifest_size_bytes,rsa_sig_bytes,ml_dsa_sig_bytes,total_sig_bytes,
+  server_hash_ms,server_rsa_sign_ms,server_ml_dsa_sign_ms,server_verify_ms,error
 
 CSV Summary (benchmark-summary-{timestamp}.csv):
   profile,hash,bucket,n_success,n_failed,verify_rate,
@@ -873,7 +882,7 @@ Deterministic Factors (Controllable):
   - Dataset content: Fixed files with known size and hash
   - Condition ordering: Controlled by seed parameter
   - HTTP client configuration: Timeouts, connection limits
-  - Cryptographic algorithms: RSA-4096, Dilithium3, SHA-256, Keccak-256
+  - Cryptographic algorithms: RSA-PSS, CRYSTALS-ml_dsa Round 3, SHA-256, Keccak-256
 
 Non-Deterministic Factors (Uncontrollable):
   - Network latency: Jitter in HTTP request/response time
@@ -1134,7 +1143,7 @@ Secrets Inventory:
      - Storage: File mounted read-only to Manifest Builder container
      - Rotation: Manual (generate new key, restart service, sign new manifests)
   
-  4. Dilithium Secret Key (keys/dilithium_sk.bin)
+  4. ml_dsa Secret Key (keys/ml_dsa_sk.bin)
      - Purpose: Post-quantum signature generation
      - Storage: File mounted read-only to Manifest Builder container
      - Rotation: Manual (same as RSA)
@@ -1168,21 +1177,21 @@ Hash Algorithms:
 
 Choice Rationale: SHA-256 provides baseline for comparison with classical
 signing. Keccak-256 provides quantum-resistant alternative for full post-quantum
-stack (Keccak + Dilithium).
+stack (Keccak + ml_dsa).
 
 Signature Algorithms:
-  - RSA-PSS (4096-bit key, SHA-256 hash):
+  - RSA-PSS (helper script currently provisions 3072-bit keys, SHA-256 hash):
     * NIST-recommended classical signature scheme
     * Probabilistic padding prevents signature forgery
-    * 4096-bit key provides ~150-bit security level
+    * The runtime can load different PEM key sizes, but the bundled helper uses RSA-3072
   
-  - Dilithium3 (NIST Level 3):
-    * NIST post-quantum signature finalist (selected for standardization)
+  - CRYSTALS-ml_dsa Round 3:
+    * Pre-FIPS implementation exposed by `pqcrypto-ml_dsa::ml_dsa`
     * Lattice-based (Module-LWE hardness assumption)
-    * Level 3 provides ~190-bit quantum security (matches AES-256)
+    * Used here as the repo's implemented PQC signing baseline
 
 Hybrid Signature Strategy:
-  - Independent execution: RSA-PSS and Dilithium both sign same canonical manifest
+  - Independent execution: RSA-PSS and ml_dsa both sign same canonical manifest
   - AND semantics: Both signatures must verify for overall success
   - Parallel timing: Both sign operations timed independently for comparison
 
@@ -1201,7 +1210,7 @@ separation prevents cross-protocol signature reuse attacks.
 
 Key Management:
   - RSA keys: PKCS#8 PEM format (OpenSSL compatible)
-  - Dilithium keys: Raw binary format (pqcrypto-dilithium format)
+  - ml_dsa keys: Raw binary format (pqcrypto-ml_dsa format)
   - Keys stored on host filesystem, mounted read-only to containers
   - No key escrow or splitting (single-key control)
 
@@ -1339,9 +1348,9 @@ Hash Computation (Hasher Service):
   - Scaling: Horizontal scaling of hasher service instances (stateless)
 
 Signature Generation (Manifest Builder Service):
-  - CPU-bound: RSA-PSS and Dilithium signing are compute-intensive
-  - Memory-bound: Dilithium signing allocates ~3KB signature buffer
-  - Bottleneck: Dilithium signing ~10-50x slower than RSA (observed)
+  - CPU-bound: RSA-PSS and ml_dsa signing are compute-intensive
+  - Memory-bound: ml_dsa signing allocates ~3KB signature buffer
+  - Bottleneck: ml_dsa signing ~10-50x slower than RSA (observed)
   - Scaling: Horizontal scaling of manifest builder instances (stateless)
 
 Manifest Verification (Manifest Builder Service):
@@ -1415,7 +1424,7 @@ Potential Caching Opportunities (Future Work):
      - Benefit: Avoids re-hashing for repeated verification
   
   3. Public Key Cache (In-Memory):
-     - Key: key_id (RSA or Dilithium)
+     - Key: key_id (RSA or ml_dsa)
      - Value: Parsed public key object
      - TTL: Process lifetime
      - Benefit: Avoids repeated PEM/binary parsing
@@ -1495,7 +1504,7 @@ Decision 3: Content-Addressed Storage vs Centralized Index
 Decision 4: Hybrid Signature (Independent) vs Hybrid Signature (Nested)
   Chosen: Independent execution (both algorithms sign same canonical manifest)
   Rationale:
-    - Timing comparison: Can measure RSA and Dilithium independently without
+    - Timing comparison: Can measure RSA and ml_dsa independently without
       commingling execution.
     - Security clarity: Both signatures verifiable independently.
     - Academic validity: Overhead of hybrid is sum of both, not nested.
@@ -1561,9 +1570,9 @@ Alternative 3: Client-Side Hashing (Web Crypto API)
     - Integrity: Server can't verify file matches hash.
 
 Alternative 4: Nested Hybrid Signature
-  Description: Sign RSA signature with Dilithium (or vice versa)
+  Description: Sign RSA signature with ml_dsa (or vice versa)
   Rejected Because:
-    - Timing interference: Can't measure RSA and Dilithium independently.
+    - Timing interference: Can't measure RSA and ml_dsa independently.
     - Security confusion: Unclear which signature provides what guarantee.
     - Academic validity: Overhead is nested, not additive.
 
@@ -1575,7 +1584,7 @@ Alternative 5: Blockchain-Based Manifest Storage
     - Academic scope: Auditability is secondary to performance comparison.
 
 Alternative 6: Hardware Security Module (HSM) for Keys
-  Description: Store RSA and Dilithium keys in HSM
+  Description: Store RSA and ml_dsa keys in HSM
   Rejected Because:
     - Cost: HSM hardware is expensive.
     - Complexity: PKCS#11 integration is complex.

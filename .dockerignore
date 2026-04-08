@@ -1,17 +1,11 @@
-target/
-.git/
-.gitignore
-.env
-.env.local
-*.md
-!README.md
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-node_modules/
-flycheck*/
-Dockerfile
-docker-compose.yml
+# Keep Docker build context minimal for faster transfers and better cache behavior.
+*
+
+# Rust sources required by the Dockerfile.
+!Cargo.toml
+!Cargo.lock
+!src/**
+
+# Container definitions.
+!Dockerfile
+!docker-compose.yml

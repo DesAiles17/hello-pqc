@@ -1,0 +1,9 @@
+\contentsline {table}{\numberline {1}{\ignorespaces Security requirements for quantum-safe cloud-based file workflows}}{17}{table.1}%
+\contentsline {table}{\numberline {2}{\ignorespaces Formal Phase\nobreakspace {}1 campaign summary.}}{34}{table.2}%
+\contentsline {table}{\numberline {3}{\ignorespaces Hash stage latency and throughput (\texttt {sign\_only} scenario, warm, median). All seven signature profiles share an identical hash stage; values are per-hash medians across profiles.}}{35}{table.3}%
+\contentsline {table}{\numberline {4}{\ignorespaces Server-side signing latency by profile (SHA-256 hash, \texttt {sign\_only} scenario, warm, median ms). Sign cost is computed on the 32-byte digest and is therefore payload-independent; the range shown confirms this.}}{37}{table.4}%
+\contentsline {table}{\numberline {5}{\ignorespaces Server-side verification latency by profile (SHA-256 hash, \texttt {verify\_manifest} scenario, warm, median ms). Values are stable across payload sizes; 10\nobreakspace {}KB and 10\nobreakspace {}MB columns are shown as representatives.}}{39}{table.5}%
+\contentsline {table}{\numberline {6}{\ignorespaces Signature sizes and overhead (SHA-256, \texttt {sign\_only} scenario, warm, median). Signature-as-\%-of-file values illustrate the storage-amplification penalty at each bucket size.}}{40}{table.6}%
+\contentsline {table}{\numberline {7}{\ignorespaces Client-observed end-to-end workflow latency (SHA-256, \texttt {workflow} scenario, warm, median ms).}}{42}{table.7}%
+\contentsline {table}{\numberline {8}{\ignorespaces Ratio of each profile's end-to-end median to RSA-PSS median (SHA-256, \texttt {workflow} scenario, warm). Values below 1.0 indicate faster than RSA-PSS. 95\% bootstrapped CI shown.}}{43}{table.8}%
+\contentsline {table}{\numberline {9}{\ignorespaces Phase\nobreakspace {}2 carry-forward selection summary.}}{47}{table.9}%

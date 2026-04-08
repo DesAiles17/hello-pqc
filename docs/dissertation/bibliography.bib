@@ -196,7 +196,7 @@
   url          = {https://csrc.nist.gov/projects/post-quantum-cryptography/round-3-submissions}
 }
 
-@online{nist-falcon-selection-2022,
+@online{nist-fn_dsa-selection-2022,
   author       = {National Institute of Standards and Technology},
   title        = {{NIST} to Standardize Encryption Algorithms That Can Resist Attack by Quantum Computers},
   year         = {2022},
@@ -260,4 +260,234 @@
   month  = nov,
   url    = {https://www.digicert.com/blog/the-progress-toward-post-quantum-cryptography}
 }
-s
+
+% ---- Entries added for Sections 2--4 ----
+
+@misc{nist-fips206-2024,
+  author      = {National Institute of Standards and Technology},
+  title       = {{FN-DSA}: {FN-DSA}-Based Digital Signature Algorithm},
+  subtitle    = {Federal Information Processing Standards Publication 206},
+  year        = {2024},
+  month       = aug,
+  institution = {U.S. Department of Commerce},
+  doi         = {10.6028/NIST.FIPS.206}
+}
+
+@misc{nist-sp800-131a-2019,
+  author      = {Barker, Elaine and Roginsky, Allen},
+  title       = {Transitioning the Use of Cryptographic Algorithms and Key Lengths},
+  subtitle    = {Special Publication 800-131A Revision 2},
+  year        = {2019},
+  month       = mar,
+  institution = {National Institute of Standards and Technology},
+  doi         = {10.6028/NIST.SP.800-131Ar2}
+}
+
+@article{mosca2018,
+  author  = {Michele Mosca},
+  title   = {Cybersecurity in an Era with Quantum Computers: Will We Be Ready?},
+  journal = {IEEE Security \& Privacy},
+  year    = {2018},
+  volume  = {16},
+  number  = {5},
+  pages   = {38--41},
+  doi     = {10.1109/MSP.2018.3761723}
+}
+
+@article{preskill2018,
+  author  = {John Preskill},
+  title   = {Quantum Computing in the {NISQ} Era and Beyond},
+  journal = {Quantum},
+  year    = {2018},
+  volume  = {2},
+  pages   = {79},
+  doi     = {10.22331/q-2018-08-06-79}
+}
+
+@article{regev2009,
+  author  = {Oded Regev},
+  title   = {On Lattices, Learning with Errors, Random Linear Codes, and Cryptography},
+  journal = {Journal of the ACM},
+  year    = {2009},
+  volume  = {56},
+  number  = {6},
+  pages   = {34:1--34:40},
+  doi     = {10.1145/1568318.1568324}
+}
+
+@inproceedings{lyubashevsky2012,
+  author    = {Vadim Lyubashevsky},
+  title     = {Lattice Signatures without Trapdoors},
+  booktitle = {Advances in Cryptology -- {EUROCRYPT} 2012},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {7237},
+  pages     = {738--755},
+  publisher = {Springer},
+  address   = {Berlin},
+  year      = {2012},
+  doi       = {10.1007/978-3-642-29011-4_43}
+}
+
+@techreport{lamport1979,
+  author      = {Leslie Lamport},
+  title       = {Constructing Digital Signatures from a One-Way Function},
+  institution = {SRI International Computer Science Laboratory},
+  year        = {1979},
+  number      = {SRI-CSL-98}
+}
+
+@inproceedings{merkle1989,
+  author    = {Ralph C. Merkle},
+  title     = {A Certified Digital Signature},
+  booktitle = {Advances in Cryptology -- {CRYPTO} 1989},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {435},
+  pages     = {218--238},
+  publisher = {Springer},
+  address   = {Berlin},
+  year      = {1989},
+  doi       = {10.1007/0-387-34805-0_21}
+}
+
+@misc{fouque2020fn_dsa,
+  author       = {Pierre-Alain Fouque and Jeffrey Hoffstein and Paul Kirchner and
+                  Vadim Lyubashevsky and Thomas Pornin and Thomas Prest and
+                  Thomas Pulles and Christine van Vredendaal and William Whyte and
+                  Zhenfei Zhang},
+  title        = {FN-DSA: Fast-{Fourier} Lattice-based Compact Signatures over {NTRU}},
+  howpublished = {{NIST} Post-Quantum Cryptography Round~3 Submission},
+  year         = {2020},
+  url          = {https://fn_dsa-sign.info}
+}
+
+@inproceedings{hoffstein1998,
+  author    = {Jeffrey Hoffstein and Jill Pipher and Joseph H. Silverman},
+  title     = {{NTRU}: A Ring-Based Public Key Cryptosystem},
+  booktitle = {Algorithmic Number Theory -- {ANTS-III} 1998},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {1423},
+  pages     = {267--288},
+  publisher = {Springer},
+  address   = {Berlin},
+  year      = {1998},
+  doi       = {10.1007/BFb0054868}
+}
+
+% ---- Cloud workflow citations (Section 4) ----
+
+% Ama24d: envelope encryption / DEK-KEK architecture overview
+@online{Ama24d,
+  author = {{Amazon Web Services}},
+  title  = {Client-side encryption},
+  year   = {2024},
+  url    = {https://docs.aws.amazon.com/kms/latest/cryptographic-details/client-side-encryption.html}
+}
+
+% Ama24a: S3 SSE-KMS -- DEK stored in object metadata / key store
+@online{Ama24a,
+  author = {{Amazon Web Services}},
+  title  = {Using server-side encryption with {AWS KMS} keys ({SSE-KMS})},
+  year   = {2024},
+  url    = {https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html}
+}
+
+% Ama24b: object integrity checksums during ingestion
+@online{Ama24b,
+  author = {{Amazon Web Services}},
+  title  = {Checking object integrity in {Amazon S3}},
+  year   = {2024},
+  url    = {https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html}
+}
+
+% Ama24c: integrity verification for data at rest / retrieval
+@online{Ama24c,
+  author = {{Amazon Web Services}},
+  title  = {Checking object integrity for data at rest in {Amazon S3}},
+  year   = {2024},
+  url    = {https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity-at-rest.html}
+}
+
+% Ama23: CloudTrail signed digest files / log integrity validation
+@online{Ama23,
+  author = {{Amazon Web Services}},
+  title  = {Validating {CloudTrail} log file integrity},
+  year   = {2023},
+  url    = {https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-intro.html}
+}
+
+% Goo24: Google Cloud KMS envelope encryption
+@online{Goo24,
+  author = {{Google Cloud}},
+  title  = {Envelope encryption},
+  year   = {2024},
+  url    = {https://cloud.google.com/kms/docs/envelope-encryption}
+}
+
+% KS06: NIST SP 800-92 -- log management and signed audit logs
+@misc{KS06,
+  author      = {Karen Kent and Murugiah Souppaya},
+  title       = {Guide to Computer Security Log Management},
+  howpublished = {{NIST} Special Publication 800-92},
+  year        = {2006},
+  month       = sep,
+  institution = {National Institute of Standards and Technology},
+  doi         = {10.6028/NIST.SP.800-92},
+  url         = {https://csrc.nist.gov/pubs/sp/800/92/final}
+}
+
+% Ven+23: García-Ruiz et al. (2023) -- aws-s3-integrity-check tool
+@article{Ven+23,
+  author  = {García-Ruiz, Yanina and Teufel, Bernhard and Stanitsas, Pantelis and others},
+  title   = {aws-s3-integrity-check: an open-source bash tool to verify the integrity of a dataset stored on {Amazon S3}},
+  journal = {GigaByte},
+  year    = {2023},
+  doi     = {10.46471/gigabyte.87}
+}
+
+% Yan24: Yandex Cloud KMS envelope encryption documentation
+@online{Yan24,
+  author = {{Yandex Cloud}},
+  title  = {Envelope encryption},
+  year   = {2024},
+  url    = {https://yandex.cloud/en/docs/kms/concepts/envelope}
+}
+
+% CBOR: RFC 8949 (Concise Binary Object Representation)
+@misc{rfc8949-cbor,
+  author       = {C. Bormann and P. Hoffman},
+  title        = {Concise Binary Object Representation ({CBOR})},
+  howpublished = {RFC 8949},
+  year         = {2020},
+  month        = dec,
+  publisher    = {Internet Engineering Task Force},
+  doi          = {10.17487/RFC8949}
+}
+
+% MinIO: open-source S3-compatible object storage
+@online{minio-docs,
+  author = {{MinIO, Inc.}},
+  title  = {{MinIO} Object Storage for {Linux}},
+  year   = {2024},
+  url    = {https://min.io/docs/minio/linux/index.html}
+}
+
+% BLAKE3: fast, parallel cryptographic hash function
+@inproceedings{blake3-2020,
+  author    = {Jack O'Connor and Jean-Philippe Aumasson and Samuel Neves and Zooko Wilcox-O'Hearn},
+  title     = {{BLAKE3}: One Function, Fast Everywhere},
+  booktitle = {IACR Cryptology ePrint Archive},
+  year      = {2020},
+  note      = {Report 2020/1235},
+  url       = {https://eprint.iacr.org/2020/1235}
+}
+
+% Keccak / SHA-3 standard (FIPS 202)
+@misc{nist-fips-202-2015,
+  author       = {{National Institute of Standards and Technology}},
+  title        = {{SHA-3} Standard: Permutation-Based Hash and Extendable-Output Functions},
+  howpublished = {FIPS PUB 202},
+  year         = {2015},
+  month        = aug,
+  publisher    = {U.S. Department of Commerce},
+  doi          = {10.6028/NIST.FIPS.202}
+}

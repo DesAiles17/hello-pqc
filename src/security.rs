@@ -459,6 +459,7 @@ impl Default for ValidationConfig {
                 "KECCAK".to_string(),
                 "KECCAK256".to_string(),
                 "KECCAK-256".to_string(),
+                "BLAKE3".to_string(),
             ],
             allowed_signature_profiles: vec![
                 "classical_only".to_string(),
@@ -504,15 +505,15 @@ impl ValidationConfig {
 
     /// Validate signature profile
     pub fn validate_signature_profile(&self, profile: &str) -> Result<()> {
-        let normalized = profile.to_lowercase();
-        if !self.allowed_signature_profiles.contains(&normalized) {
-            return Err(anyhow!(
-                "Invalid signature profile '{}'. Allowed: {:?}",
-                profile,
-                self.allowed_signature_profiles
-            ));
+        use crate::models::normalize_benchmark_profile;
+        if normalize_benchmark_profile(profile).is_some() {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Invalid signature profile '{}'. Please use one of the standard algorithms or a classical_pqc combination.",
+                profile
+            ))
         }
-        Ok(())
     }
 
     /// Validate domain separator

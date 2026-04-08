@@ -1,6 +1,10 @@
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
-use pqc_hons::OperationMetricsResponse;
+use pqc_hons::{
+    benchmark_hash_to_service, benchmark_profile_to_service, normalize_benchmark_hash,
+    normalize_benchmark_profile,
+};
+use pqc_hons::{OperationMetricsResponse, UploadCleanupRequest, VerifyResponse};
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use reqwest::{multipart, Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -9,9 +13,186 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+pub const DEFAULT_SIGNATURE_PROFILES: [&str; 7] = [
+    "rsa_pss",
+    "eddsa",
+    "ecdsa",
+    "hmac_sha256",
+    "ml_dsa",
+    "slh_dsa",
+    "fn_dsa",
+];
+pub const DEFAULT_HASH_ALGORITHMS: [&str; 3] = ["sha256", "blake3", "keccak256"];
+pub const DEFAULT_BUCKETS: [&str; 5] = ["10KB", "100KB", "1MB", "10MB", "50MB"];
+pub const DEFAULT_SCENARIOS: [&str; 6] = [
+    "workflow",
+    "sign_only",
+    "verify_manifest",
+    "verify_stored",
+    "verify_uploaded",
+    "verify_full",
+];
+pub const DEFAULT_STORAGE_STATES: [&str; 2] = ["cold", "warm"];
+pub const DEFAULT_DATASET_FILE_TYPES: [&str; 5] = ["bin", "txt", "json", "csv", "md"];
+pub const DEFAULT_RUN_PHASES: [&str; 2] = ["warmup", "measured"];
+pub const DEFAULT_TELEMETRY_SCOPES: [&str; 4] = ["client", "server", "artifact", "quality"];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkCategory {
+    pub name: String,
+    pub role: String,
+    pub options: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkMeasurementGroup {
+    pub name: String,
+    pub fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkSetup {
+    pub version: String,
+    pub purpose: String,
+    pub primary_matrix: Vec<BenchmarkCategory>,
+    pub secondary_factors: Vec<BenchmarkCategory>,
+    pub measurement_groups: Vec<BenchmarkMeasurementGroup>,
+    pub notes: Vec<String>,
+}
+
+impl BenchmarkSetup {
+    pub fn dissertation_defaults() -> Self {
+        Self::from_resolved_options(
+            &strings(&DEFAULT_SIGNATURE_PROFILES),
+            &strings(&DEFAULT_HASH_ALGORITHMS),
+            &strings(&DEFAULT_BUCKETS),
+            &strings(&DEFAULT_SCENARIOS),
+            &strings(&DEFAULT_STORAGE_STATES),
+            &strings(&DEFAULT_DATASET_FILE_TYPES),
+        )
+    }
+
+    pub fn from_resolved_options(
+        signature_profiles: &[String],
+        hash_algorithms: &[String],
+        payload_buckets: &[String],
+        scenarios: &[String],
+        storage_states: &[String],
+        file_types: &[String],
+    ) -> Self {
+        let signature_profiles =
+            resolved_or_default(signature_profiles, &DEFAULT_SIGNATURE_PROFILES);
+        let hash_algorithms = resolved_or_default(hash_algorithms, &DEFAULT_HASH_ALGORITHMS);
+        let payload_buckets = resolved_or_default(payload_buckets, &DEFAULT_BUCKETS);
+        let scenarios = resolved_or_default(scenarios, &DEFAULT_SCENARIOS);
+        let storage_states = resolved_or_default(storage_states, &DEFAULT_STORAGE_STATES);
+        let file_types = resolved_or_default(file_types, &DEFAULT_DATASET_FILE_TYPES);
+
+        Self {
+            version: "benchmarking.v2".to_string(),
+            purpose:
+                "Decision-grade performance benchmarking for classical and post-quantum signing workflows"
+                    .to_string(),
+            primary_matrix: vec![
+                category("scenario", "primary_matrix", &scenarios),
+                category("storage_state", "primary_matrix", &storage_states),
+                category("signature_strategy", "primary_matrix", &signature_profiles),
+                category("hash_algorithm", "primary_matrix", &hash_algorithms),
+                category("payload_bucket", "primary_matrix", &payload_buckets),
+            ],
+            secondary_factors: vec![
+                category("file_content_class", "secondary_factor", &file_types),
+                category("run_phase", "secondary_factor", &strings(&DEFAULT_RUN_PHASES)),
+                category(
+                    "telemetry_scope",
+                    "secondary_factor",
+                    &strings(&DEFAULT_TELEMETRY_SCOPES),
+                ),
+            ],
+            measurement_groups: vec![
+                BenchmarkMeasurementGroup {
+                    name: "outcome_and_validity".to_string(),
+                    fields: strings(&[
+                        "scenario_status",
+                        "verify_outcome",
+                        "scenario_success_rate",
+                        "verify_applicable_success_rate",
+                        "server_telemetry_status",
+                        "server_telemetry_coverage",
+                    ]),
+                },
+                BenchmarkMeasurementGroup {
+                    name: "performance_timings".to_string(),
+                    fields: strings(&[
+                        "setup_upload_ms",
+                        "setup_process_ms",
+                        "client_upload_ms",
+                        "client_process_ms",
+                        "client_verify_ms",
+                        "client_total_ms",
+                        "server_hash_ms",
+                        "server_verify_ms",
+                        "server_total_ms",
+                    ]),
+                },
+                BenchmarkMeasurementGroup {
+                    name: "artifact_overhead".to_string(),
+                    fields: strings(&[
+                        "manifest_core_bytes",
+                        "manifest_core_cbor_bytes",
+                        "total_signature_bytes",
+                        "manifest_overhead_pct",
+                        "signature_overhead_pct",
+                    ]),
+                },
+                BenchmarkMeasurementGroup {
+                    name: "provenance_and_controls".to_string(),
+                    fields: strings(&[
+                        "dataset_seed",
+                        "dataset_relative_path",
+                        "dataset_bucket_index",
+                        "dataset_file_type",
+                        "storage_state_label",
+                        "campaign_label",
+                        "repeat_index",
+                    ]),
+                },
+            ],
+            notes: strings(&[
+                "Treat file identity as a sampled replicate inside each bucket, not as a headline comparison axis.",
+                "Use server-side timings as the source of truth for crypto-stage conclusions.",
+                "Warm-up runs are excluded from measured summaries.",
+                "For sign_only, client_total_ms still includes upload and setup overhead.",
+            ]),
+        }
+    }
+}
+
+fn category(name: &str, role: &str, options: &[String]) -> BenchmarkCategory {
+    BenchmarkCategory {
+        name: name.to_string(),
+        role: role.to_string(),
+        options: options.to_vec(),
+    }
+}
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_string()).collect()
+}
+
+fn resolved_or_default(values: &[String], defaults: &[&str]) -> Vec<String> {
+    if values.is_empty() {
+        strings(defaults)
+    } else {
+        values.to_vec()
+    }
+}
+
 #[derive(Parser, Debug, Clone)]
 #[command(name = "benchmark-cli")]
-#[command(about = "Headless benchmark runner for classical vs PQC vs hybrid signing")]
+#[command(
+    about = "Headless benchmark runner for classical and PQC signatures"
+)]
 struct Cli {
     #[arg(long, default_value = "http://localhost:3000")]
     base_url: String,
@@ -25,17 +206,16 @@ struct Cli {
     #[arg(long, default_value = "output/benchmarks")]
     output_dir: PathBuf,
 
-    #[arg(long, value_delimiter = ',', default_value = "classical,pqc,hybrid")]
-    profiles: Vec<String>,
-
-    #[arg(long, value_delimiter = ',', default_value = "sha256,keccak256")]
-    hashes: Vec<String>,
-
     #[arg(
         long,
         value_delimiter = ',',
-        default_value = "10KB,100KB,1MB,10MB,50MB"
     )]
+    profiles: Vec<String>,
+
+    #[arg(long, value_delimiter = ',', default_value = "sha256,blake3,keccak256")]
+    hashes: Vec<String>,
+
+    #[arg(long, value_delimiter = ',', default_value = "10KB,100KB,1MB,10MB,50MB")]
     buckets: Vec<String>,
 
     #[arg(long, value_delimiter = ',', default_value = "workflow")]
@@ -47,7 +227,7 @@ struct Cli {
     #[arg(long, default_value_t = 3)]
     warmup_runs: u32,
 
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 400)]
     inter_run_delay_ms: u64,
 
     #[arg(long, default_value_t = false)]
@@ -87,11 +267,18 @@ struct Job {
     ordinal: u32,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 enum Phase {
     Warmup,
     Measured,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FileSelectionKey {
+    phase: Phase,
+    ordinal: u32,
+    bucket: String,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +286,65 @@ struct BucketSpec {
     label: String,
     min_bytes: u64,
     max_bytes: u64,
+}
+
+/// Status of a benchmark scenario attempt.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ScenarioStatus {
+    /// Scenario attempted and completed successfully.
+    Ok,
+    /// Scenario attempted but the operation failed (e.g. verify returned false, HTTP error in
+    /// scenario body).
+    Failed,
+    /// Run failed during fixture setup before the scenario body was reached.
+    NotAttempted,
+}
+
+/// Outcome of the verify stage for a run.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum VerifyOutcome {
+    /// Verification was part of this scenario and passed.
+    Ok,
+    /// Verification was part of this scenario but failed.
+    Failed,
+    /// Verification is not part of this scenario (sign_only).
+    NotApplicable,
+    /// Scenario failed before reaching the verify stage.
+    NotAttempted,
+}
+
+/// Whether server-side operation telemetry was available for a run.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ServerTelemetryStatus {
+    /// No --operations-endpoint was configured; server metrics were not collected.
+    NotConfigured,
+    /// Telemetry retrieved and all expected operations for this scenario are present.
+    Available,
+    /// Endpoint responded but some expected operations were absent (possible propagation delay).
+    Partial,
+    /// Telemetry fetch failed (network error, HTTP error, or parse failure).
+    Error,
+}
+
+/// Host-independent provenance record for a dataset file.
+#[derive(Debug, Clone)]
+struct DatasetFileEntry {
+    index: u32,
+    file_type: String,
+    relative_path: String,
+    seed: String,
+}
+
+/// Loaded dataset manifest for provenance enrichment.
+#[derive(Debug, Default)]
+struct DatasetManifest {
+    /// Seed string from dataset-metadata.json, if present.
+    seed: Option<String>,
+    /// Entries keyed by relative path (as stored in dataset-manifest.csv).
+    entries: HashMap<String, DatasetFileEntry>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -130,16 +376,6 @@ struct VerifyRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct VerifyResponse {
-    request_id: String,
-    signature_ok: bool,
-    object_ok: bool,
-    file_hash_match: bool,
-    overall_ok: bool,
-    errors: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 struct SignedManifest {
     core: ManifestCore,
     envelope: serde_json::Value,
@@ -163,7 +399,18 @@ struct ManifestCore {
 #[derive(Debug, Serialize, Deserialize)]
 struct Signatures {
     rsa_pss: Option<String>,
-    dilithium: Option<String>,
+    #[serde(default)]
+    eddsa: Option<String>,
+    #[serde(default)]
+    ecdsa_p256: Option<String>,
+    #[serde(default)]
+    hmac_sha256: Option<String>,
+    #[serde(default)]
+    ml_dsa: Option<String>,
+    #[serde(default)]
+    slh_dsa: Option<String>,
+    #[serde(default)]
+    fn_dsa: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -177,16 +424,54 @@ struct RunRecord {
     storage_state_label: String,
     campaign_label: Option<String>,
     repeat_index: Option<u32>,
+
+    // ── Dataset provenance (host-independent) ───────────────────────────────
+    /// Dataset generator seed string (from dataset-metadata.json).
+    dataset_seed: Option<String>,
+    /// Path relative to the dataset root (from dataset-manifest.csv).
+    dataset_relative_path: Option<String>,
+    /// 1-based file index within its bucket (from dataset-manifest.csv).
+    dataset_bucket_index: Option<u32>,
+    /// Content class of the file: bin, txt, json, csv, md (from dataset-manifest.csv).
+    dataset_file_type: Option<String>,
+    /// Absolute local path — operational reference only, not primary evidence.
     file_path: String,
-    file_extension: Option<String>,
     file_size_bytes: u64,
+
+    // ── Operational identifiers (debug / tracing only) ───────────────────────
     request_id: Option<String>,
+
+    // ── HTTP-stage outcome flags ─────────────────────────────────────────────
     upload_http_ok: bool,
     process_http_ok: bool,
     verify_http_ok: bool,
+
+    // ── Typed outcome fields ─────────────────────────────────────────────────
+    /// Typed scenario result: ok | failed | not_attempted.
+    scenario_status: ScenarioStatus,
+    /// Convenience boolean derived from scenario_status (backward compat).
     scenario_success: bool,
+    /// Typed verify result: ok | failed | not_applicable | not_attempted.
+    verify_outcome: VerifyOutcome,
+    /// Whether server telemetry was configured, available, partial, or missing.
+    server_telemetry_status: ServerTelemetryStatus,
+
     verify_overall_ok: Option<bool>,
+    verify_signature_ok: Option<bool>,
+    verify_object_ok: Option<bool>,
+    verify_file_hash_match: Option<bool>,
+    verify_error_details: Option<String>,
+
+    // ── Fixture setup timings (always recorded; separate from scenario body) ─
+    /// Client-observed upload time for the fixture setup step (all scenarios).
+    setup_upload_ms: Option<f64>,
+    /// Client-observed process/sign time for the fixture setup step (all scenarios).
+    setup_process_ms: Option<f64>,
+
+    // ── Scenario body timings (only for stages that are part of the scenario) ─
+    /// Upload time as part of the scenario body (workflow and sign_only only).
     client_upload_ms: Option<f64>,
+    /// Process/sign time as part of the scenario body (workflow and sign_only only).
     client_process_ms: Option<f64>,
     client_verify_ms: Option<f64>,
     client_total_ms: Option<f64>,
@@ -195,7 +480,12 @@ struct RunRecord {
     manifest_core_cbor_bytes: Option<usize>,
     manifest_envelope_bytes: Option<usize>,
     rsa_signature_bytes: Option<usize>,
-    dilithium_signature_bytes: Option<usize>,
+    eddsa_signature_bytes: Option<usize>,
+    ecdsa_signature_bytes: Option<usize>,
+    hmac_signature_bytes: Option<usize>,
+    ml_dsa_signature_bytes: Option<usize>,
+    slh_dsa_signature_bytes: Option<usize>,
+    fn_dsa_signature_bytes: Option<usize>,
     total_signature_bytes: Option<usize>,
     manifest_overhead_pct: Option<f64>,
     signature_overhead_pct: Option<f64>,
@@ -221,7 +511,18 @@ struct RunRecord {
     server_manifest_canonicalize_ms: Option<f64>,
     server_db_persist_ms: Option<f64>,
     server_rsa_sign_ms: Option<f64>,
-    server_dilithium_sign_ms: Option<f64>,
+    server_eddsa_sign_ms: Option<f64>,
+    server_ecdsa_sign_ms: Option<f64>,
+    server_hmac_sign_ms: Option<f64>,
+    server_ml_dsa_sign_ms: Option<f64>,
+    server_slh_dsa_sign_ms: Option<f64>,
+    server_fn_dsa_sign_ms: Option<f64>,
+    server_eddsa_verify_ms: Option<f64>,
+    server_ecdsa_verify_ms: Option<f64>,
+    server_hmac_verify_ms: Option<f64>,
+    server_ml_dsa_verify_ms: Option<f64>,
+    server_slh_dsa_verify_ms: Option<f64>,
+    server_fn_dsa_verify_ms: Option<f64>,
     server_manifest_fetch_db_lookup_ms: Option<f64>,
     server_verify_hash_ms: Option<f64>,
     server_verify_canonicalize_ms: Option<f64>,
@@ -255,17 +556,56 @@ struct ConditionSummary {
     measured_runs_success: usize,
     measured_runs_failed: usize,
     scenario_success_rate: f64,
+    /// Number of runs where verify was applicable (non-zero only for verify scenarios).
+    verify_applicable_runs: usize,
+    /// Number of applicable runs where verify passed.
+    verify_ok_runs: usize,
+    /// Success rate among applicable verify runs; None when verify is not part of this scenario.
+    verify_applicable_success_rate: Option<f64>,
+    /// Legacy field kept for backward compatibility — use verify_applicable_success_rate instead.
+    /// For sign_only this is always 0.0 which is misleading; prefer the typed fields above.
     verify_success_rate: f64,
+    /// Whether an --operations-endpoint was configured for this run set.
+    server_telemetry_configured: bool,
+    /// Fraction of successful runs that produced server-side telemetry.
+    server_telemetry_coverage: f64,
+    /// Setup stage timings (fixture upload; present for all scenarios).
+    setup_upload_ms: Option<MetricSummary>,
+    /// Setup stage timings (fixture process/sign; present for all scenarios).
+    setup_process_ms: Option<MetricSummary>,
     upload_ms: Option<MetricSummary>,
     process_ms: Option<MetricSummary>,
     verify_ms: Option<MetricSummary>,
     total_ms: Option<MetricSummary>,
+    server_process_gateway_ms: Option<MetricSummary>,
+    server_verify_gateway_ms: Option<MetricSummary>,
     server_hash_ms: Option<MetricSummary>,
     server_rsa_sign_ms: Option<MetricSummary>,
-    server_dilithium_sign_ms: Option<MetricSummary>,
+    server_eddsa_sign_ms: Option<MetricSummary>,
+    server_ecdsa_sign_ms: Option<MetricSummary>,
+    server_hmac_sign_ms: Option<MetricSummary>,
+    server_ml_dsa_sign_ms: Option<MetricSummary>,
+    server_slh_dsa_sign_ms: Option<MetricSummary>,
+    server_fn_dsa_sign_ms: Option<MetricSummary>,
+    server_eddsa_verify_ms: Option<MetricSummary>,
+    server_ecdsa_verify_ms: Option<MetricSummary>,
+    server_hmac_verify_ms: Option<MetricSummary>,
+    server_ml_dsa_verify_ms: Option<MetricSummary>,
+    server_slh_dsa_verify_ms: Option<MetricSummary>,
+    server_fn_dsa_verify_ms: Option<MetricSummary>,
     server_verify_ms: Option<MetricSummary>,
     server_total_ms: Option<MetricSummary>,
     manifest_size_bytes: Option<MetricSummary>,
+    manifest_core_bytes: Option<MetricSummary>,
+    manifest_core_cbor_bytes: Option<MetricSummary>,
+    manifest_envelope_bytes: Option<MetricSummary>,
+    rsa_signature_bytes: Option<MetricSummary>,
+    eddsa_signature_bytes: Option<MetricSummary>,
+    ecdsa_signature_bytes: Option<MetricSummary>,
+    hmac_signature_bytes: Option<MetricSummary>,
+    ml_dsa_signature_bytes: Option<MetricSummary>,
+    slh_dsa_signature_bytes: Option<MetricSummary>,
+    fn_dsa_signature_bytes: Option<MetricSummary>,
     total_signature_bytes: Option<MetricSummary>,
     manifest_overhead_pct: Option<MetricSummary>,
     signature_overhead_pct: Option<MetricSummary>,
@@ -274,10 +614,8 @@ struct ConditionSummary {
     server_hash_mib_s: Option<MetricSummary>,
     server_verify_mib_s: Option<MetricSummary>,
     server_total_mib_s: Option<MetricSummary>,
-    s_pqc_vs_classical_total_median: Option<f64>,
-    s_hybrid_vs_classical_total_median: Option<f64>,
-    s_pqc_vs_classical_server_total_median: Option<f64>,
-    s_hybrid_vs_classical_server_total_median: Option<f64>,
+    ratio_vs_rsa_pss_total_median: Option<f64>,
+    ratio_vs_rsa_pss_server_total_median: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -291,7 +629,22 @@ struct ConditionSummaryCsv {
     measured_runs_success: usize,
     measured_runs_failed: usize,
     scenario_success_rate: f64,
+    verify_applicable_runs: usize,
+    verify_ok_runs: usize,
+    verify_applicable_success_rate: Option<f64>,
     verify_success_rate: f64,
+    server_telemetry_configured: bool,
+    server_telemetry_coverage: f64,
+    setup_upload_ms_median: Option<f64>,
+    setup_upload_ms_iqr: Option<f64>,
+    setup_upload_ms_p95: Option<f64>,
+    setup_upload_ms_ci95_low: Option<f64>,
+    setup_upload_ms_ci95_high: Option<f64>,
+    setup_process_ms_median: Option<f64>,
+    setup_process_ms_iqr: Option<f64>,
+    setup_process_ms_p95: Option<f64>,
+    setup_process_ms_ci95_low: Option<f64>,
+    setup_process_ms_ci95_high: Option<f64>,
     upload_ms_median: Option<f64>,
     upload_ms_iqr: Option<f64>,
     upload_ms_p95: Option<f64>,
@@ -312,6 +665,16 @@ struct ConditionSummaryCsv {
     total_ms_p95: Option<f64>,
     total_ms_ci95_low: Option<f64>,
     total_ms_ci95_high: Option<f64>,
+    server_process_gateway_ms_median: Option<f64>,
+    server_process_gateway_ms_iqr: Option<f64>,
+    server_process_gateway_ms_p95: Option<f64>,
+    server_process_gateway_ms_ci95_low: Option<f64>,
+    server_process_gateway_ms_ci95_high: Option<f64>,
+    server_verify_gateway_ms_median: Option<f64>,
+    server_verify_gateway_ms_iqr: Option<f64>,
+    server_verify_gateway_ms_p95: Option<f64>,
+    server_verify_gateway_ms_ci95_low: Option<f64>,
+    server_verify_gateway_ms_ci95_high: Option<f64>,
     server_hash_ms_median: Option<f64>,
     server_hash_ms_iqr: Option<f64>,
     server_hash_ms_p95: Option<f64>,
@@ -322,11 +685,66 @@ struct ConditionSummaryCsv {
     server_rsa_sign_ms_p95: Option<f64>,
     server_rsa_sign_ms_ci95_low: Option<f64>,
     server_rsa_sign_ms_ci95_high: Option<f64>,
-    server_dilithium_sign_ms_median: Option<f64>,
-    server_dilithium_sign_ms_iqr: Option<f64>,
-    server_dilithium_sign_ms_p95: Option<f64>,
-    server_dilithium_sign_ms_ci95_low: Option<f64>,
-    server_dilithium_sign_ms_ci95_high: Option<f64>,
+    server_eddsa_sign_ms_median: Option<f64>,
+    server_eddsa_sign_ms_iqr: Option<f64>,
+    server_eddsa_sign_ms_p95: Option<f64>,
+    server_eddsa_sign_ms_ci95_low: Option<f64>,
+    server_eddsa_sign_ms_ci95_high: Option<f64>,
+    server_ecdsa_sign_ms_median: Option<f64>,
+    server_ecdsa_sign_ms_iqr: Option<f64>,
+    server_ecdsa_sign_ms_p95: Option<f64>,
+    server_ecdsa_sign_ms_ci95_low: Option<f64>,
+    server_ecdsa_sign_ms_ci95_high: Option<f64>,
+    server_hmac_sign_ms_median: Option<f64>,
+    server_hmac_sign_ms_iqr: Option<f64>,
+    server_hmac_sign_ms_p95: Option<f64>,
+    server_hmac_sign_ms_ci95_low: Option<f64>,
+    server_hmac_sign_ms_ci95_high: Option<f64>,
+    server_ml_dsa_sign_ms_median: Option<f64>,
+    server_ml_dsa_sign_ms_iqr: Option<f64>,
+    server_ml_dsa_sign_ms_p95: Option<f64>,
+    server_ml_dsa_sign_ms_ci95_low: Option<f64>,
+    server_ml_dsa_sign_ms_ci95_high: Option<f64>,
+    server_slh_dsa_sign_ms_median: Option<f64>,
+    server_slh_dsa_sign_ms_iqr: Option<f64>,
+    server_slh_dsa_sign_ms_p95: Option<f64>,
+    server_slh_dsa_sign_ms_ci95_low: Option<f64>,
+    server_slh_dsa_sign_ms_ci95_high: Option<f64>,
+    server_fn_dsa_sign_ms_median: Option<f64>,
+    server_fn_dsa_sign_ms_iqr: Option<f64>,
+    server_fn_dsa_sign_ms_p95: Option<f64>,
+    server_fn_dsa_sign_ms_ci95_low: Option<f64>,
+    server_fn_dsa_sign_ms_ci95_high: Option<f64>,
+    server_eddsa_verify_ms_median: Option<f64>,
+    server_eddsa_verify_ms_iqr: Option<f64>,
+    server_eddsa_verify_ms_p95: Option<f64>,
+    server_eddsa_verify_ms_ci95_low: Option<f64>,
+    server_eddsa_verify_ms_ci95_high: Option<f64>,
+    server_ecdsa_verify_ms_median: Option<f64>,
+    server_ecdsa_verify_ms_iqr: Option<f64>,
+    server_ecdsa_verify_ms_p95: Option<f64>,
+    server_ecdsa_verify_ms_ci95_low: Option<f64>,
+    server_ecdsa_verify_ms_ci95_high: Option<f64>,
+    server_hmac_verify_ms_median: Option<f64>,
+    server_hmac_verify_ms_iqr: Option<f64>,
+    server_hmac_verify_ms_p95: Option<f64>,
+    server_hmac_verify_ms_ci95_low: Option<f64>,
+    server_hmac_verify_ms_ci95_high: Option<f64>,
+    server_ml_dsa_verify_ms_median: Option<f64>,
+    server_ml_dsa_verify_ms_iqr: Option<f64>,
+    server_ml_dsa_verify_ms_p95: Option<f64>,
+    server_ml_dsa_verify_ms_ci95_low: Option<f64>,
+    server_ml_dsa_verify_ms_ci95_high: Option<f64>,
+    server_slh_dsa_verify_ms_median: Option<f64>,
+    server_slh_dsa_verify_ms_iqr: Option<f64>,
+    server_slh_dsa_verify_ms_p95: Option<f64>,
+    server_slh_dsa_verify_ms_ci95_low: Option<f64>,
+    server_slh_dsa_verify_ms_ci95_high: Option<f64>,
+    server_fn_dsa_verify_ms_median: Option<f64>,
+    server_fn_dsa_verify_ms_iqr: Option<f64>,
+    server_fn_dsa_verify_ms_p95: Option<f64>,
+    server_fn_dsa_verify_ms_ci95_low: Option<f64>,
+    server_fn_dsa_verify_ms_ci95_high: Option<f64>,
     server_verify_ms_median: Option<f64>,
     server_verify_ms_iqr: Option<f64>,
     server_verify_ms_p95: Option<f64>,
@@ -342,6 +760,56 @@ struct ConditionSummaryCsv {
     manifest_size_p95: Option<f64>,
     manifest_size_ci95_low: Option<f64>,
     manifest_size_ci95_high: Option<f64>,
+    manifest_core_bytes_median: Option<f64>,
+    manifest_core_bytes_iqr: Option<f64>,
+    manifest_core_bytes_p95: Option<f64>,
+    manifest_core_bytes_ci95_low: Option<f64>,
+    manifest_core_bytes_ci95_high: Option<f64>,
+    manifest_core_cbor_bytes_median: Option<f64>,
+    manifest_core_cbor_bytes_iqr: Option<f64>,
+    manifest_core_cbor_bytes_p95: Option<f64>,
+    manifest_core_cbor_bytes_ci95_low: Option<f64>,
+    manifest_core_cbor_bytes_ci95_high: Option<f64>,
+    manifest_envelope_bytes_median: Option<f64>,
+    manifest_envelope_bytes_iqr: Option<f64>,
+    manifest_envelope_bytes_p95: Option<f64>,
+    manifest_envelope_bytes_ci95_low: Option<f64>,
+    manifest_envelope_bytes_ci95_high: Option<f64>,
+    rsa_signature_bytes_median: Option<f64>,
+    rsa_signature_bytes_iqr: Option<f64>,
+    rsa_signature_bytes_p95: Option<f64>,
+    rsa_signature_bytes_ci95_low: Option<f64>,
+    rsa_signature_bytes_ci95_high: Option<f64>,
+    eddsa_signature_bytes_median: Option<f64>,
+    eddsa_signature_bytes_iqr: Option<f64>,
+    eddsa_signature_bytes_p95: Option<f64>,
+    eddsa_signature_bytes_ci95_low: Option<f64>,
+    eddsa_signature_bytes_ci95_high: Option<f64>,
+    ecdsa_signature_bytes_median: Option<f64>,
+    ecdsa_signature_bytes_iqr: Option<f64>,
+    ecdsa_signature_bytes_p95: Option<f64>,
+    ecdsa_signature_bytes_ci95_low: Option<f64>,
+    ecdsa_signature_bytes_ci95_high: Option<f64>,
+    hmac_signature_bytes_median: Option<f64>,
+    hmac_signature_bytes_iqr: Option<f64>,
+    hmac_signature_bytes_p95: Option<f64>,
+    hmac_signature_bytes_ci95_low: Option<f64>,
+    hmac_signature_bytes_ci95_high: Option<f64>,
+    ml_dsa_signature_bytes_median: Option<f64>,
+    ml_dsa_signature_bytes_iqr: Option<f64>,
+    ml_dsa_signature_bytes_p95: Option<f64>,
+    ml_dsa_signature_bytes_ci95_low: Option<f64>,
+    ml_dsa_signature_bytes_ci95_high: Option<f64>,
+    slh_dsa_signature_bytes_median: Option<f64>,
+    slh_dsa_signature_bytes_iqr: Option<f64>,
+    slh_dsa_signature_bytes_p95: Option<f64>,
+    slh_dsa_signature_bytes_ci95_low: Option<f64>,
+    slh_dsa_signature_bytes_ci95_high: Option<f64>,
+    fn_dsa_signature_bytes_median: Option<f64>,
+    fn_dsa_signature_bytes_iqr: Option<f64>,
+    fn_dsa_signature_bytes_p95: Option<f64>,
+    fn_dsa_signature_bytes_ci95_low: Option<f64>,
+    fn_dsa_signature_bytes_ci95_high: Option<f64>,
     signature_size_median: Option<f64>,
     signature_size_iqr: Option<f64>,
     signature_size_p95: Option<f64>,
@@ -382,10 +850,38 @@ struct ConditionSummaryCsv {
     server_total_mib_s_p95: Option<f64>,
     server_total_mib_s_ci95_low: Option<f64>,
     server_total_mib_s_ci95_high: Option<f64>,
-    s_pqc_vs_classical_total_median: Option<f64>,
-    s_hybrid_vs_classical_total_median: Option<f64>,
-    s_pqc_vs_classical_server_total_median: Option<f64>,
-    s_hybrid_vs_classical_server_total_median: Option<f64>,
+    ratio_vs_rsa_pss_total_median: Option<f64>,
+    ratio_vs_rsa_pss_server_total_median: Option<f64>,
+}
+
+/// One row in the long-form primary evidence metrics table.
+///
+/// Compared to the wide summary CSV, this format is easier to filter,
+/// pivot, and import into statistical tools. Each metric occupies exactly
+/// one row with explicit coverage and applicability metadata, so null values
+/// are always interpretable.
+#[derive(Debug, Clone, Serialize)]
+struct EvidenceMetricRow {
+    benchmark_scenario: String,
+    storage_state: String,
+    signature_profile: String,
+    hash_algorithm: String,
+    bucket: String,
+    metric_name: String,
+    metric_unit: &'static str,
+    /// Scope of the metric: "client" | "server" | "artifact" | "setup"
+    metric_scope: &'static str,
+    /// "applicable" | "not_applicable" | "not_configured"
+    metric_applicability: &'static str,
+    /// Number of successful runs that contributed a value for this metric.
+    n: Option<usize>,
+    /// Fraction of successful runs where this metric was present (0.0–1.0).
+    coverage: Option<f64>,
+    median: Option<f64>,
+    iqr: Option<f64>,
+    p95: Option<f64>,
+    ci95_low: Option<f64>,
+    ci95_high: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -395,6 +891,8 @@ struct BenchmarkReport {
     environment: EnvironmentMetadata,
     raw_runs: Vec<RunRecord>,
     summaries: Vec<ConditionSummary>,
+    /// Long-form primary evidence metrics table (one metric per row).
+    evidence_metrics: Vec<EvidenceMetricRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -415,6 +913,7 @@ struct CliReportConfig {
     storage_state_label: String,
     campaign_label: Option<String>,
     repeat_index: Option<u32>,
+    benchmark_setup: BenchmarkSetup,
 }
 
 #[derive(Debug, Serialize)]
@@ -469,6 +968,9 @@ async fn main() -> Result<()> {
         );
     }
 
+    let dataset_manifest = load_dataset_manifest(&cli.dataset_dir);
+    let dataset_file_types = collect_dataset_file_types(&dataset_manifest);
+
     let files_by_bucket = index_files_by_bucket(&all_files, &bucket_specs)?;
 
     let conditions = build_conditions(
@@ -501,6 +1003,7 @@ async fn main() -> Result<()> {
         .keys()
         .map(|bucket| (bucket.clone(), 0usize))
         .collect();
+    let mut selected_files: HashMap<FileSelectionKey, PathBuf> = HashMap::new();
     let mut previous_phase: Option<Phase> = None;
 
     for (idx, job) in jobs.iter().enumerate() {
@@ -514,26 +1017,39 @@ async fn main() -> Result<()> {
             previous_phase = Some(job.phase);
         }
 
-        let candidate_files = bucket_file_cycles
-            .get_mut(&job.condition.bucket)
-            .ok_or_else(|| anyhow!("Missing files for bucket {}", job.condition.bucket))?;
+        let selection_key = FileSelectionKey {
+            phase: job.phase,
+            ordinal: job.ordinal,
+            bucket: job.condition.bucket.clone(),
+        };
+        let selected = if let Some(existing) = selected_files.get(&selection_key) {
+            existing.clone()
+        } else {
+            let candidate_files = bucket_file_cycles
+                .get_mut(&job.condition.bucket)
+                .ok_or_else(|| anyhow!("Missing files for bucket {}", job.condition.bucket))?;
 
-        if candidate_files.is_empty() {
-            bail!("No files found for bucket {}", job.condition.bucket);
-        }
+            if candidate_files.is_empty() {
+                bail!("No files found for bucket {}", job.condition.bucket);
+            }
 
-        let offset = bucket_offsets
-            .entry(job.condition.bucket.clone())
-            .or_insert(0usize);
-        if *offset >= candidate_files.len() {
-            candidate_files.shuffle(&mut rng);
-            *offset = 0;
-        }
-        let selected = candidate_files[*offset].clone();
-        *offset += 1;
+            let offset = bucket_offsets
+                .entry(job.condition.bucket.clone())
+                .or_insert(0usize);
+            if *offset >= candidate_files.len() {
+                candidate_files.shuffle(&mut rng);
+                *offset = 0;
+            }
+
+            let selected = candidate_files[*offset].clone();
+            *offset += 1;
+            selected_files.insert(selection_key, selected.clone());
+            selected
+        };
 
         let run_idx = (idx + 1) as u64;
-        let record = run_single_job(&client, &cli, run_idx, job, &selected).await;
+        let record =
+            run_single_job(&client, &cli, run_idx, job, &selected, &dataset_manifest).await;
 
         let is_failed = record.error.is_some();
         run_records.push(record);
@@ -548,6 +1064,18 @@ async fn main() -> Result<()> {
     }
 
     let summaries = build_condition_summaries(&run_records, cli.bootstrap_samples, seed);
+    let evidence_metrics = build_evidence_metrics(&summaries, cli.bootstrap_samples, seed);
+    let benchmark_setup = BenchmarkSetup::from_resolved_options(
+        &normalized_profiles,
+        &normalized_hashes,
+        &bucket_specs
+            .iter()
+            .map(|b| b.label.clone())
+            .collect::<Vec<_>>(),
+        &normalized_scenarios,
+        &[cli.storage_state_label.clone()],
+        &dataset_file_types,
+    );
 
     let report = BenchmarkReport {
         generated_at: chrono::Utc::now().to_rfc3339(),
@@ -568,13 +1096,22 @@ async fn main() -> Result<()> {
             storage_state_label: cli.storage_state_label.clone(),
             campaign_label: cli.campaign_label.clone(),
             repeat_index: cli.repeat_index,
+            benchmark_setup,
         },
         environment: collect_environment_metadata(),
         raw_runs: run_records.clone(),
         summaries: summaries.clone(),
+        evidence_metrics: evidence_metrics.clone(),
     };
 
-    write_outputs(&cli.output_dir, &report, &run_records, &summaries).await?;
+    write_outputs(
+        &cli.output_dir,
+        &report,
+        &run_records,
+        &summaries,
+        &evidence_metrics,
+    )
+    .await?;
 
     println!("Benchmark completed.");
     println!("Seed: {}", seed);
@@ -591,7 +1128,28 @@ async fn run_single_job(
     run_idx: u64,
     job: &Job,
     selected_file: &PathBuf,
+    manifest: &DatasetManifest,
 ) -> RunRecord {
+    // Resolve dataset-relative provenance fields.
+    let (dataset_seed, dataset_relative_path, dataset_bucket_index, dataset_file_type) =
+        if let Some(entry) = manifest.entries.get(selected_file.to_str().unwrap_or("")) {
+            (
+                Some(entry.seed.clone()),
+                Some(entry.relative_path.clone()),
+                Some(entry.index),
+                Some(entry.file_type.clone()),
+            )
+        } else {
+            // Fall back to manifest seed even if the file isn't in the manifest.
+            (manifest.seed.clone(), None, None, None)
+        };
+
+    let server_telemetry_status_default = if cli.operations_endpoint.is_some() {
+        ServerTelemetryStatus::Error // will be overwritten on success
+    } else {
+        ServerTelemetryStatus::NotConfigured
+    };
+
     let mut record = RunRecord {
         run_index: run_idx,
         phase: job.phase,
@@ -602,18 +1160,27 @@ async fn run_single_job(
         storage_state_label: cli.storage_state_label.clone(),
         campaign_label: cli.campaign_label.clone(),
         repeat_index: cli.repeat_index,
+        dataset_seed,
+        dataset_relative_path,
+        dataset_bucket_index,
+        dataset_file_type,
         file_path: selected_file.display().to_string(),
-        file_extension: selected_file
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_string()),
         file_size_bytes: 0,
         request_id: None,
         upload_http_ok: false,
         process_http_ok: false,
         verify_http_ok: false,
+        scenario_status: ScenarioStatus::NotAttempted,
         scenario_success: false,
+        verify_outcome: VerifyOutcome::NotAttempted,
+        server_telemetry_status: server_telemetry_status_default,
         verify_overall_ok: None,
+        verify_signature_ok: None,
+        verify_object_ok: None,
+        verify_file_hash_match: None,
+        verify_error_details: None,
+        setup_upload_ms: None,
+        setup_process_ms: None,
         client_upload_ms: None,
         client_process_ms: None,
         client_verify_ms: None,
@@ -623,7 +1190,12 @@ async fn run_single_job(
         manifest_core_cbor_bytes: None,
         manifest_envelope_bytes: None,
         rsa_signature_bytes: None,
-        dilithium_signature_bytes: None,
+        eddsa_signature_bytes: None,
+        ecdsa_signature_bytes: None,
+        hmac_signature_bytes: None,
+        ml_dsa_signature_bytes: None,
+        slh_dsa_signature_bytes: None,
+        fn_dsa_signature_bytes: None,
         total_signature_bytes: None,
         manifest_overhead_pct: None,
         signature_overhead_pct: None,
@@ -649,7 +1221,18 @@ async fn run_single_job(
         server_manifest_canonicalize_ms: None,
         server_db_persist_ms: None,
         server_rsa_sign_ms: None,
-        server_dilithium_sign_ms: None,
+        server_eddsa_sign_ms: None,
+        server_ecdsa_sign_ms: None,
+        server_hmac_sign_ms: None,
+        server_ml_dsa_sign_ms: None,
+        server_slh_dsa_sign_ms: None,
+        server_fn_dsa_sign_ms: None,
+        server_eddsa_verify_ms: None,
+        server_ecdsa_verify_ms: None,
+        server_hmac_verify_ms: None,
+        server_ml_dsa_verify_ms: None,
+        server_slh_dsa_verify_ms: None,
+        server_fn_dsa_verify_ms: None,
         server_manifest_fetch_db_lookup_ms: None,
         server_verify_hash_ms: None,
         server_verify_canonicalize_ms: None,
@@ -669,8 +1252,17 @@ async fn run_single_job(
             record.upload_http_ok = flow.upload_http_ok;
             record.process_http_ok = flow.process_http_ok;
             record.verify_http_ok = flow.verify_http_ok;
-            record.scenario_success = flow.scenario_success;
+            record.scenario_status = flow.scenario_status;
+            record.scenario_success = matches!(flow.scenario_status, ScenarioStatus::Ok);
+            record.verify_outcome = flow.verify_outcome;
+            record.server_telemetry_status = flow.server_telemetry_status;
             record.verify_overall_ok = flow.verify_overall_ok;
+            record.verify_signature_ok = flow.verify_signature_ok;
+            record.verify_object_ok = flow.verify_object_ok;
+            record.verify_file_hash_match = flow.verify_file_hash_match;
+            record.verify_error_details = flow.verify_error_details.clone();
+            record.setup_upload_ms = Some(flow.setup_upload_ms);
+            record.setup_process_ms = Some(flow.setup_process_ms);
             record.client_upload_ms = flow.client_upload_ms;
             record.client_process_ms = flow.client_process_ms;
             record.client_verify_ms = flow.client_verify_ms;
@@ -680,7 +1272,12 @@ async fn run_single_job(
             record.manifest_core_cbor_bytes = Some(flow.manifest_core_cbor_bytes);
             record.manifest_envelope_bytes = Some(flow.manifest_envelope_bytes);
             record.rsa_signature_bytes = flow.rsa_signature_bytes;
-            record.dilithium_signature_bytes = flow.dilithium_signature_bytes;
+            record.eddsa_signature_bytes = flow.eddsa_signature_bytes;
+            record.ecdsa_signature_bytes = flow.ecdsa_signature_bytes;
+            record.hmac_signature_bytes = flow.hmac_signature_bytes;
+            record.ml_dsa_signature_bytes = flow.ml_dsa_signature_bytes;
+            record.slh_dsa_signature_bytes = flow.slh_dsa_signature_bytes;
+            record.fn_dsa_signature_bytes = flow.fn_dsa_signature_bytes;
             record.total_signature_bytes = flow.total_signature_bytes;
             record.manifest_overhead_pct = flow.manifest_overhead_pct;
             record.signature_overhead_pct = flow.signature_overhead_pct;
@@ -706,7 +1303,18 @@ async fn run_single_job(
             record.server_manifest_canonicalize_ms = flow.server_manifest_canonicalize_ms;
             record.server_db_persist_ms = flow.server_db_persist_ms;
             record.server_rsa_sign_ms = flow.server_rsa_sign_ms;
-            record.server_dilithium_sign_ms = flow.server_dilithium_sign_ms;
+            record.server_eddsa_sign_ms = flow.server_eddsa_sign_ms;
+            record.server_ecdsa_sign_ms = flow.server_ecdsa_sign_ms;
+            record.server_hmac_sign_ms = flow.server_hmac_sign_ms;
+            record.server_ml_dsa_sign_ms = flow.server_ml_dsa_sign_ms;
+            record.server_slh_dsa_sign_ms = flow.server_slh_dsa_sign_ms;
+            record.server_fn_dsa_sign_ms = flow.server_fn_dsa_sign_ms;
+            record.server_eddsa_verify_ms = flow.server_eddsa_verify_ms;
+            record.server_ecdsa_verify_ms = flow.server_ecdsa_verify_ms;
+            record.server_hmac_verify_ms = flow.server_hmac_verify_ms;
+            record.server_ml_dsa_verify_ms = flow.server_ml_dsa_verify_ms;
+            record.server_slh_dsa_verify_ms = flow.server_slh_dsa_verify_ms;
+            record.server_fn_dsa_verify_ms = flow.server_fn_dsa_verify_ms;
             record.server_manifest_fetch_db_lookup_ms = flow.server_manifest_fetch_db_lookup_ms;
             record.server_verify_hash_ms = flow.server_verify_hash_ms;
             record.server_verify_canonicalize_ms = flow.server_verify_canonicalize_ms;
@@ -716,15 +1324,42 @@ async fn run_single_job(
             record.server_verify_ms = flow.server_verify_ms;
             record.server_total_ms = flow.server_total_ms;
 
-            if flow.verify_overall_ok == Some(false) || !flow.scenario_success {
+            if !matches!(flow.scenario_status, ScenarioStatus::Ok) {
                 record.error_stage = Some("scenario".to_string());
-                record.error = Some("Verification returned overall_ok=false".to_string());
+                record.error = Some(match flow.verify_error_details.as_deref() {
+                    Some(details) if !details.is_empty() => {
+                        format!("Verification returned overall_ok=false: {}", details)
+                    }
+                    _ => "Verification returned overall_ok=false".to_string(),
+                });
             }
         }
         Err(err) => {
             let message = err.to_string();
             let stage = classify_error_stage(&message);
             record.error_stage = Some(stage.to_string());
+            // setup_upload / setup_process failures → NotAttempted (scenario was never reached)
+            // upload / process / verify failures → Failed (within scenario body)
+            record.scenario_status = match stage {
+                "setup_upload" | "setup_process" => ScenarioStatus::NotAttempted,
+                _ => ScenarioStatus::Failed,
+            };
+            record.scenario_success = false;
+            record.verify_outcome = match stage {
+                "setup_upload" | "setup_process" | "upload" | "process" => {
+                    // Scenario body not reached or verify step not reached
+                    let scenario = ScenarioKind::from_label(&job.condition.benchmark_scenario)
+                        .ok()
+                        .unwrap_or(ScenarioKind::Workflow);
+                    if scenario == ScenarioKind::SignOnly {
+                        VerifyOutcome::NotApplicable
+                    } else {
+                        VerifyOutcome::NotAttempted
+                    }
+                }
+                "verify" => VerifyOutcome::Failed,
+                _ => VerifyOutcome::NotAttempted,
+            };
             match stage {
                 "upload" => {}
                 "process" => {
@@ -776,12 +1411,22 @@ async fn run_single_job(
 
 #[derive(Debug)]
 struct FlowResult {
-    scenario_success: bool,
+    scenario_status: ScenarioStatus,
+    verify_outcome: VerifyOutcome,
+    server_telemetry_status: ServerTelemetryStatus,
     upload_http_ok: bool,
     process_http_ok: bool,
     verify_http_ok: bool,
     request_id: String,
+    /// Upload time for the fixture setup step (always present on Ok flow).
+    setup_upload_ms: f64,
+    /// Process/sign time for the fixture setup step (always present on Ok flow).
+    setup_process_ms: f64,
     verify_overall_ok: Option<bool>,
+    verify_signature_ok: Option<bool>,
+    verify_object_ok: Option<bool>,
+    verify_file_hash_match: Option<bool>,
+    verify_error_details: Option<String>,
     file_size_bytes: u64,
     client_upload_ms: Option<f64>,
     client_process_ms: Option<f64>,
@@ -792,7 +1437,12 @@ struct FlowResult {
     manifest_core_cbor_bytes: usize,
     manifest_envelope_bytes: usize,
     rsa_signature_bytes: Option<usize>,
-    dilithium_signature_bytes: Option<usize>,
+    eddsa_signature_bytes: Option<usize>,
+    ecdsa_signature_bytes: Option<usize>,
+    hmac_signature_bytes: Option<usize>,
+    ml_dsa_signature_bytes: Option<usize>,
+    slh_dsa_signature_bytes: Option<usize>,
+    fn_dsa_signature_bytes: Option<usize>,
     total_signature_bytes: Option<usize>,
     manifest_overhead_pct: Option<f64>,
     signature_overhead_pct: Option<f64>,
@@ -818,7 +1468,18 @@ struct FlowResult {
     server_manifest_canonicalize_ms: Option<f64>,
     server_db_persist_ms: Option<f64>,
     server_rsa_sign_ms: Option<f64>,
-    server_dilithium_sign_ms: Option<f64>,
+    server_eddsa_sign_ms: Option<f64>,
+    server_ecdsa_sign_ms: Option<f64>,
+    server_hmac_sign_ms: Option<f64>,
+    server_ml_dsa_sign_ms: Option<f64>,
+    server_slh_dsa_sign_ms: Option<f64>,
+    server_fn_dsa_sign_ms: Option<f64>,
+    server_eddsa_verify_ms: Option<f64>,
+    server_ecdsa_verify_ms: Option<f64>,
+    server_hmac_verify_ms: Option<f64>,
+    server_ml_dsa_verify_ms: Option<f64>,
+    server_slh_dsa_verify_ms: Option<f64>,
+    server_fn_dsa_verify_ms: Option<f64>,
     server_manifest_fetch_db_lookup_ms: Option<f64>,
     server_verify_hash_ms: Option<f64>,
     server_verify_canonicalize_ms: Option<f64>,
@@ -843,7 +1504,18 @@ struct ServerMetricValues {
     server_manifest_canonicalize_ms: Option<f64>,
     server_db_persist_ms: Option<f64>,
     server_rsa_sign_ms: Option<f64>,
-    server_dilithium_sign_ms: Option<f64>,
+    server_eddsa_sign_ms: Option<f64>,
+    server_ecdsa_sign_ms: Option<f64>,
+    server_hmac_sign_ms: Option<f64>,
+    server_ml_dsa_sign_ms: Option<f64>,
+    server_slh_dsa_sign_ms: Option<f64>,
+    server_fn_dsa_sign_ms: Option<f64>,
+    server_eddsa_verify_ms: Option<f64>,
+    server_ecdsa_verify_ms: Option<f64>,
+    server_hmac_verify_ms: Option<f64>,
+    server_ml_dsa_verify_ms: Option<f64>,
+    server_slh_dsa_verify_ms: Option<f64>,
+    server_fn_dsa_verify_ms: Option<f64>,
     server_manifest_fetch_db_lookup_ms: Option<f64>,
     server_verify_hash_ms: Option<f64>,
     server_verify_canonicalize_ms: Option<f64>,
@@ -911,220 +1583,365 @@ async fn execute_single_flow(
         })?
         .len();
 
-    let fixture = prepare_signed_fixture(client, cli, condition, file_path).await?;
-    let artifact_metrics = compute_artifact_metrics(&fixture.process.manifest, file_size)?;
+    let fixture = prepare_signed_fixture(client, cli, condition, file_path, scenario).await?;
+    let cleanup_path = fixture.upload.file_path.clone();
 
-    let mut client_upload_ms = None;
-    let mut client_process_ms = None;
-    let mut client_verify_ms = None;
-    let mut verify_overall_ok = None;
-    let mut upload_http_ok = true;
-    let mut process_http_ok = true;
-    let mut verify_http_ok = false;
-    let scenario_success;
+    let flow_result: Result<FlowResult> = async {
+        let artifact_metrics = compute_artifact_metrics(&fixture.process.manifest, file_size)?;
 
-    match scenario {
-        ScenarioKind::Workflow => {
-            let verify = verify_request_call(
-                client,
-                cli,
-                &fixture.request_id,
-                true,
-                Some(fixture.upload.file_path.clone()),
-            )
-            .await
-            .map_err(|err| stage_error("verify", err))?;
-            client_upload_ms = Some(fixture.client_upload_ms);
-            client_process_ms = Some(fixture.client_process_ms);
-            client_verify_ms = Some(verify.client_verify_ms);
-            verify_overall_ok = Some(verify.verify.overall_ok);
-            verify_http_ok = true;
-            scenario_success = verify.verify.overall_ok;
-        }
-        ScenarioKind::SignOnly => {
-            client_upload_ms = Some(fixture.client_upload_ms);
-            client_process_ms = Some(fixture.client_process_ms);
-            scenario_success = true;
-        }
-        ScenarioKind::VerifyManifest => {
-            let verify = verify_request_call(client, cli, &fixture.request_id, false, None)
+        let mut client_upload_ms = None;
+        let mut client_process_ms = None;
+        let mut client_verify_ms = None;
+        let mut verify_overall_ok = None;
+        let mut verify_signature_ok = None;
+        let mut verify_object_ok = None;
+        let mut verify_file_hash_match = None;
+        let mut verify_error_details = None;
+        let mut upload_http_ok = true;
+        let mut process_http_ok = true;
+        let mut verify_http_ok = false;
+        let scenario_status;
+        let verify_outcome;
+
+        match scenario {
+            ScenarioKind::Workflow => {
+                let verify = verify_request_call(
+                    client,
+                    cli,
+                    &fixture.request_id,
+                    true,
+                    Some(fixture.upload.file_path.clone()),
+                )
                 .await
                 .map_err(|err| stage_error("verify", err))?;
-            client_verify_ms = Some(verify.client_verify_ms);
-            verify_overall_ok = Some(verify.verify.overall_ok);
-            verify_http_ok = true;
-            scenario_success = verify.verify.overall_ok;
-        }
-        ScenarioKind::VerifyStored => {
-            let verify = verify_request_call(client, cli, &fixture.request_id, true, None)
+                // Upload+process are scenario body for workflow
+                client_upload_ms = Some(fixture.client_upload_ms);
+                client_process_ms = Some(fixture.client_process_ms);
+                apply_verify_result(
+                    &verify,
+                    &mut client_verify_ms,
+                    &mut verify_overall_ok,
+                    &mut verify_http_ok,
+                    &mut verify_signature_ok,
+                    &mut verify_object_ok,
+                    &mut verify_file_hash_match,
+                    &mut verify_error_details,
+                );
+                scenario_status = if verify.verify.overall_ok {
+                    ScenarioStatus::Ok
+                } else {
+                    ScenarioStatus::Failed
+                };
+                verify_outcome = if verify.verify.overall_ok {
+                    VerifyOutcome::Ok
+                } else {
+                    VerifyOutcome::Failed
+                };
+            }
+            ScenarioKind::SignOnly => {
+                // Upload+process are scenario body for sign_only; no verify step
+                client_upload_ms = Some(fixture.client_upload_ms);
+                client_process_ms = Some(fixture.client_process_ms);
+                scenario_status = ScenarioStatus::Ok;
+                verify_outcome = VerifyOutcome::NotApplicable;
+            }
+            ScenarioKind::VerifyManifest => {
+                // Upload+process are fixture setup only; scenario body is verify
+                let verify = verify_request_call(client, cli, &fixture.request_id, false, None)
+                    .await
+                    .map_err(|err| stage_error("verify", err))?;
+                apply_verify_result(
+                    &verify,
+                    &mut client_verify_ms,
+                    &mut verify_overall_ok,
+                    &mut verify_http_ok,
+                    &mut verify_signature_ok,
+                    &mut verify_object_ok,
+                    &mut verify_file_hash_match,
+                    &mut verify_error_details,
+                );
+                scenario_status = if verify.verify.overall_ok {
+                    ScenarioStatus::Ok
+                } else {
+                    ScenarioStatus::Failed
+                };
+                verify_outcome = if verify.verify.overall_ok {
+                    VerifyOutcome::Ok
+                } else {
+                    VerifyOutcome::Failed
+                };
+            }
+            ScenarioKind::VerifyStored => {
+                let verify = verify_request_call(client, cli, &fixture.request_id, true, None)
+                    .await
+                    .map_err(|err| stage_error("verify", err))?;
+                apply_verify_result(
+                    &verify,
+                    &mut client_verify_ms,
+                    &mut verify_overall_ok,
+                    &mut verify_http_ok,
+                    &mut verify_signature_ok,
+                    &mut verify_object_ok,
+                    &mut verify_file_hash_match,
+                    &mut verify_error_details,
+                );
+                scenario_status = if verify.verify.overall_ok {
+                    ScenarioStatus::Ok
+                } else {
+                    ScenarioStatus::Failed
+                };
+                verify_outcome = if verify.verify.overall_ok {
+                    VerifyOutcome::Ok
+                } else {
+                    VerifyOutcome::Failed
+                };
+            }
+            ScenarioKind::VerifyUploaded => {
+                let verify = verify_request_call(
+                    client,
+                    cli,
+                    &fixture.request_id,
+                    false,
+                    Some(fixture.upload.file_path.clone()),
+                )
                 .await
                 .map_err(|err| stage_error("verify", err))?;
-            client_verify_ms = Some(verify.client_verify_ms);
-            verify_overall_ok = Some(verify.verify.overall_ok);
-            verify_http_ok = true;
-            scenario_success = verify.verify.overall_ok;
+                apply_verify_result(
+                    &verify,
+                    &mut client_verify_ms,
+                    &mut verify_overall_ok,
+                    &mut verify_http_ok,
+                    &mut verify_signature_ok,
+                    &mut verify_object_ok,
+                    &mut verify_file_hash_match,
+                    &mut verify_error_details,
+                );
+                scenario_status = if verify.verify.overall_ok {
+                    ScenarioStatus::Ok
+                } else {
+                    ScenarioStatus::Failed
+                };
+                verify_outcome = if verify.verify.overall_ok {
+                    VerifyOutcome::Ok
+                } else {
+                    VerifyOutcome::Failed
+                };
+            }
+            ScenarioKind::VerifyFull => {
+                let verify = verify_request_call(
+                    client,
+                    cli,
+                    &fixture.request_id,
+                    true,
+                    Some(fixture.upload.file_path.clone()),
+                )
+                .await
+                .map_err(|err| stage_error("verify", err))?;
+                apply_verify_result(
+                    &verify,
+                    &mut client_verify_ms,
+                    &mut verify_overall_ok,
+                    &mut verify_http_ok,
+                    &mut verify_signature_ok,
+                    &mut verify_object_ok,
+                    &mut verify_file_hash_match,
+                    &mut verify_error_details,
+                );
+                scenario_status = if verify.verify.overall_ok {
+                    ScenarioStatus::Ok
+                } else {
+                    ScenarioStatus::Failed
+                };
+                verify_outcome = if verify.verify.overall_ok {
+                    VerifyOutcome::Ok
+                } else {
+                    VerifyOutcome::Failed
+                };
+            }
         }
-        ScenarioKind::VerifyUploaded => {
-            let verify = verify_request_call(
-                client,
-                cli,
-                &fixture.request_id,
-                false,
-                Some(fixture.upload.file_path.clone()),
-            )
-            .await
-            .map_err(|err| stage_error("verify", err))?;
-            client_verify_ms = Some(verify.client_verify_ms);
-            verify_overall_ok = Some(verify.verify.overall_ok);
-            verify_http_ok = true;
-            scenario_success = verify.verify.overall_ok;
-        }
-        ScenarioKind::VerifyFull => {
-            let verify = verify_request_call(
-                client,
-                cli,
-                &fixture.request_id,
-                true,
-                Some(fixture.upload.file_path.clone()),
-            )
-            .await
-            .map_err(|err| stage_error("verify", err))?;
-            client_verify_ms = Some(verify.client_verify_ms);
-            verify_overall_ok = Some(verify.verify.overall_ok);
-            verify_http_ok = true;
-            scenario_success = verify.verify.overall_ok;
-        }
-    }
 
-    let derived = if let Some(ops_url) = cli.operations_endpoint.as_deref() {
-        fetch_operations_metrics(client, ops_url, &cli.api_key, &fixture.request_id)
-            .await
-            .ok()
-            .map(|value| derive_server_metrics(&value))
-            .unwrap_or_else(empty_server_metrics)
-    } else {
-        empty_server_metrics()
-    };
+        let (derived, server_telemetry_status) =
+            if let Some(ops_url) = cli.operations_endpoint.as_deref() {
+                match fetch_operations_metrics(
+                    client,
+                    ops_url,
+                    &cli.api_key,
+                    &fixture.request_id,
+                    scenario,
+                )
+                .await
+                {
+                    Ok(record) => {
+                        let status = if operation_metrics_ready(&record, scenario) {
+                            ServerTelemetryStatus::Available
+                        } else {
+                            ServerTelemetryStatus::Partial
+                        };
+                        (derive_server_metrics(&record), status)
+                    }
+                    Err(_) => (empty_server_metrics(), ServerTelemetryStatus::Error),
+                }
+            } else {
+                (empty_server_metrics(), ServerTelemetryStatus::NotConfigured)
+            };
 
-    let client_total_ms = match scenario {
-        ScenarioKind::Workflow | ScenarioKind::SignOnly => {
-            sum_stage_millis(&[client_upload_ms, client_process_ms, client_verify_ms])
-        }
-        ScenarioKind::VerifyManifest
-        | ScenarioKind::VerifyStored
-        | ScenarioKind::VerifyUploaded
-        | ScenarioKind::VerifyFull => client_verify_ms,
-    };
-
-    let server_total_ms = match scenario {
-        ScenarioKind::Workflow => match (
-            derived.server_process_gateway_ms,
-            derived.server_verify_gateway_ms,
-        ) {
-            (Some(process_ms), Some(verify_ms)) => Some(process_ms + verify_ms),
-            (Some(process_ms), None) => Some(process_ms),
-            (None, Some(verify_ms)) => Some(verify_ms),
-            (None, None) => None,
-        },
-        ScenarioKind::SignOnly => derived.server_process_gateway_ms,
-        ScenarioKind::VerifyManifest
-        | ScenarioKind::VerifyStored
-        | ScenarioKind::VerifyUploaded
-        | ScenarioKind::VerifyFull => derived.server_verify_gateway_ms,
-    };
-
-    let client_upload_mib_s = client_upload_ms.and_then(|ms| throughput_mib_per_s(file_size, ms));
-    let client_process_mib_s = client_process_ms.and_then(|ms| throughput_mib_per_s(file_size, ms));
-    let client_verify_mib_s = client_verify_ms.and_then(|ms| throughput_mib_per_s(file_size, ms));
-    let client_total_mib_s = client_total_ms.and_then(|ms| throughput_mib_per_s(file_size, ms));
-    let server_hash_mib_s = derived
-        .server_hash_ms
-        .and_then(|ms| throughput_mib_per_s(file_size, ms));
-    let server_verify_mib_s = derived
-        .server_verify_ms
-        .and_then(|ms| throughput_mib_per_s(file_size, ms));
-    let server_total_mib_s = server_total_ms.and_then(|ms| throughput_mib_per_s(file_size, ms));
-
-    let storage_bytes_written = match scenario {
-        ScenarioKind::Workflow | ScenarioKind::SignOnly => derived.storage_bytes_written,
-        ScenarioKind::VerifyManifest | ScenarioKind::VerifyStored => None,
-        ScenarioKind::VerifyUploaded | ScenarioKind::VerifyFull => derived.storage_bytes_written,
-    };
-    let storage_bytes_read = match scenario {
-        ScenarioKind::Workflow => derived.storage_bytes_read,
-        ScenarioKind::SignOnly => None,
-        ScenarioKind::VerifyManifest => None,
-        ScenarioKind::VerifyStored | ScenarioKind::VerifyUploaded | ScenarioKind::VerifyFull => {
-            derived.storage_bytes_read
-        }
-    };
-
-    if !matches!(
-        scenario,
-        ScenarioKind::Workflow
-            | ScenarioKind::SignOnly
-            | ScenarioKind::VerifyManifest
+        let client_total_ms = match scenario {
+            ScenarioKind::Workflow | ScenarioKind::SignOnly => {
+                sum_stage_millis(&[client_upload_ms, client_process_ms, client_verify_ms])
+            }
+            ScenarioKind::VerifyManifest
             | ScenarioKind::VerifyStored
             | ScenarioKind::VerifyUploaded
-            | ScenarioKind::VerifyFull
-    ) {
-        upload_http_ok = false;
-        process_http_ok = false;
-    }
+            | ScenarioKind::VerifyFull => client_verify_ms,
+        };
 
-    Ok(FlowResult {
-        scenario_success,
-        upload_http_ok,
-        process_http_ok,
-        verify_http_ok,
-        request_id: fixture.request_id,
-        verify_overall_ok,
-        file_size_bytes: file_size,
-        client_upload_ms,
-        client_process_ms,
-        client_verify_ms,
-        client_total_ms,
-        manifest_size_bytes: artifact_metrics.manifest_size_bytes,
-        manifest_core_bytes: artifact_metrics.manifest_core_bytes,
-        manifest_core_cbor_bytes: artifact_metrics.manifest_core_cbor_bytes,
-        manifest_envelope_bytes: artifact_metrics.manifest_envelope_bytes,
-        rsa_signature_bytes: artifact_metrics.rsa_signature_bytes,
-        dilithium_signature_bytes: artifact_metrics.dilithium_signature_bytes,
-        total_signature_bytes: artifact_metrics.total_signature_bytes,
-        manifest_overhead_pct: artifact_metrics.manifest_overhead_pct,
-        signature_overhead_pct: artifact_metrics.signature_overhead_pct,
-        storage_amplification: artifact_metrics.storage_amplification,
-        storage_bytes_written,
-        storage_bytes_read,
-        client_upload_mib_s,
-        client_process_mib_s,
-        client_verify_mib_s,
-        client_total_mib_s,
-        server_hash_mib_s,
-        server_verify_mib_s,
-        server_total_mib_s,
-        server_process_gateway_ms: derived.server_process_gateway_ms,
-        server_verify_gateway_ms: derived.server_verify_gateway_ms,
-        server_hash_ms: derived.server_hash_ms,
-        server_object_exists_check_ms: derived.server_object_exists_check_ms,
-        server_object_store_ms: derived.server_object_store_ms,
-        server_object_store_hit: derived.server_object_store_hit,
-        server_multipart_used: derived.server_multipart_used,
-        server_hash_bytes_read: derived.server_hash_bytes_read,
-        server_hash_bytes_written: derived.server_hash_bytes_written,
-        server_manifest_canonicalize_ms: derived.server_manifest_canonicalize_ms,
-        server_db_persist_ms: derived.server_db_persist_ms,
-        server_rsa_sign_ms: derived.server_rsa_sign_ms,
-        server_dilithium_sign_ms: derived.server_dilithium_sign_ms,
-        server_manifest_fetch_db_lookup_ms: derived.server_manifest_fetch_db_lookup_ms,
-        server_verify_hash_ms: derived.server_verify_hash_ms,
-        server_verify_canonicalize_ms: derived.server_verify_canonicalize_ms,
-        server_signature_verify_ms: derived.server_signature_verify_ms,
-        server_stored_object_verify_ms: derived.server_stored_object_verify_ms,
-        server_uploaded_content_verify_ms: derived.server_uploaded_content_verify_ms,
-        server_verify_ms: derived.server_verify_ms,
-        server_total_ms,
-    })
+        let server_total_ms = match scenario {
+            ScenarioKind::Workflow => match (
+                derived.server_process_gateway_ms,
+                derived.server_verify_gateway_ms,
+            ) {
+                (Some(process_ms), Some(verify_ms)) => Some(process_ms + verify_ms),
+                (Some(process_ms), None) => Some(process_ms),
+                (None, Some(verify_ms)) => Some(verify_ms),
+                (None, None) => None,
+            },
+            ScenarioKind::SignOnly => derived.server_process_gateway_ms,
+            ScenarioKind::VerifyManifest
+            | ScenarioKind::VerifyStored
+            | ScenarioKind::VerifyUploaded
+            | ScenarioKind::VerifyFull => derived.server_verify_gateway_ms,
+        };
+
+        let client_upload_mib_s =
+            client_upload_ms.and_then(|ms| throughput_mib_per_s(file_size, ms));
+        let client_process_mib_s =
+            client_process_ms.and_then(|ms| throughput_mib_per_s(file_size, ms));
+        let client_verify_mib_s =
+            client_verify_ms.and_then(|ms| throughput_mib_per_s(file_size, ms));
+        let client_total_mib_s = client_total_ms.and_then(|ms| throughput_mib_per_s(file_size, ms));
+        let server_hash_mib_s = derived
+            .server_hash_ms
+            .and_then(|ms| throughput_mib_per_s(file_size, ms));
+        let server_verify_mib_s = derived
+            .server_verify_ms
+            .and_then(|ms| throughput_mib_per_s(file_size, ms));
+        let server_total_mib_s = server_total_ms.and_then(|ms| throughput_mib_per_s(file_size, ms));
+
+        let storage_bytes_written = match scenario {
+            ScenarioKind::Workflow | ScenarioKind::SignOnly => derived.storage_bytes_written,
+            ScenarioKind::VerifyManifest | ScenarioKind::VerifyStored => None,
+            ScenarioKind::VerifyUploaded | ScenarioKind::VerifyFull => {
+                derived.storage_bytes_written
+            }
+        };
+        let storage_bytes_read = match scenario {
+            ScenarioKind::Workflow => derived.storage_bytes_read,
+            ScenarioKind::SignOnly => None,
+            ScenarioKind::VerifyManifest => None,
+            ScenarioKind::VerifyStored
+            | ScenarioKind::VerifyUploaded
+            | ScenarioKind::VerifyFull => derived.storage_bytes_read,
+        };
+
+        if !matches!(
+            scenario,
+            ScenarioKind::Workflow
+                | ScenarioKind::SignOnly
+                | ScenarioKind::VerifyManifest
+                | ScenarioKind::VerifyStored
+                | ScenarioKind::VerifyUploaded
+                | ScenarioKind::VerifyFull
+        ) {
+            upload_http_ok = false;
+            process_http_ok = false;
+        }
+
+        Ok(FlowResult {
+            scenario_status,
+            verify_outcome,
+            server_telemetry_status,
+            upload_http_ok,
+            process_http_ok,
+            verify_http_ok,
+            request_id: fixture.request_id.clone(),
+            setup_upload_ms: fixture.client_upload_ms,
+            setup_process_ms: fixture.client_process_ms,
+            verify_overall_ok,
+            verify_signature_ok,
+            verify_object_ok,
+            verify_file_hash_match,
+            verify_error_details,
+            file_size_bytes: file_size,
+            client_upload_ms,
+            client_process_ms,
+            client_verify_ms,
+            client_total_ms,
+            manifest_size_bytes: artifact_metrics.manifest_size_bytes,
+            manifest_core_bytes: artifact_metrics.manifest_core_bytes,
+            manifest_core_cbor_bytes: artifact_metrics.manifest_core_cbor_bytes,
+            manifest_envelope_bytes: artifact_metrics.manifest_envelope_bytes,
+            rsa_signature_bytes: artifact_metrics.rsa_signature_bytes,
+            eddsa_signature_bytes: artifact_metrics.eddsa_signature_bytes,
+            ecdsa_signature_bytes: artifact_metrics.ecdsa_signature_bytes,
+            hmac_signature_bytes: artifact_metrics.hmac_signature_bytes,
+            ml_dsa_signature_bytes: artifact_metrics.ml_dsa_signature_bytes,
+            slh_dsa_signature_bytes: artifact_metrics.slh_dsa_signature_bytes,
+            fn_dsa_signature_bytes: artifact_metrics.fn_dsa_signature_bytes,
+            total_signature_bytes: artifact_metrics.total_signature_bytes,
+            manifest_overhead_pct: artifact_metrics.manifest_overhead_pct,
+            signature_overhead_pct: artifact_metrics.signature_overhead_pct,
+            storage_amplification: artifact_metrics.storage_amplification,
+            storage_bytes_written,
+            storage_bytes_read,
+            client_upload_mib_s,
+            client_process_mib_s,
+            client_verify_mib_s,
+            client_total_mib_s,
+            server_hash_mib_s,
+            server_verify_mib_s,
+            server_total_mib_s,
+            server_process_gateway_ms: derived.server_process_gateway_ms,
+            server_verify_gateway_ms: derived.server_verify_gateway_ms,
+            server_hash_ms: derived.server_hash_ms,
+            server_object_exists_check_ms: derived.server_object_exists_check_ms,
+            server_object_store_ms: derived.server_object_store_ms,
+            server_object_store_hit: derived.server_object_store_hit,
+            server_multipart_used: derived.server_multipart_used,
+            server_hash_bytes_read: derived.server_hash_bytes_read,
+            server_hash_bytes_written: derived.server_hash_bytes_written,
+            server_manifest_canonicalize_ms: derived.server_manifest_canonicalize_ms,
+            server_db_persist_ms: derived.server_db_persist_ms,
+            server_rsa_sign_ms: derived.server_rsa_sign_ms,
+            server_eddsa_sign_ms: derived.server_eddsa_sign_ms,
+            server_ecdsa_sign_ms: derived.server_ecdsa_sign_ms,
+            server_hmac_sign_ms: derived.server_hmac_sign_ms,
+            server_ml_dsa_sign_ms: derived.server_ml_dsa_sign_ms,
+            server_slh_dsa_sign_ms: derived.server_slh_dsa_sign_ms,
+            server_fn_dsa_sign_ms: derived.server_fn_dsa_sign_ms,
+            server_eddsa_verify_ms: derived.server_eddsa_verify_ms,
+            server_ecdsa_verify_ms: derived.server_ecdsa_verify_ms,
+            server_hmac_verify_ms: derived.server_hmac_verify_ms,
+            server_ml_dsa_verify_ms: derived.server_ml_dsa_verify_ms,
+            server_slh_dsa_verify_ms: derived.server_slh_dsa_verify_ms,
+            server_fn_dsa_verify_ms: derived.server_fn_dsa_verify_ms,
+            server_manifest_fetch_db_lookup_ms: derived.server_manifest_fetch_db_lookup_ms,
+            server_verify_hash_ms: derived.server_verify_hash_ms,
+            server_verify_canonicalize_ms: derived.server_verify_canonicalize_ms,
+            server_signature_verify_ms: derived.server_signature_verify_ms,
+            server_stored_object_verify_ms: derived.server_stored_object_verify_ms,
+            server_uploaded_content_verify_ms: derived.server_uploaded_content_verify_ms,
+            server_verify_ms: derived.server_verify_ms,
+            server_total_ms,
+        })
+    }
+    .await;
+
+    let cleanup_result = cleanup_uploaded_file(client, cli, &cleanup_path).await;
+    match (flow_result, cleanup_result) {
+        (Err(flow_err), _) => Err(flow_err),
+        (Ok(flow), Ok(())) => Ok(flow),
+        (Ok(_), Err(cleanup_err)) => Err(stage_error("cleanup_upload", cleanup_err)),
+    }
 }
 
 #[derive(Debug)]
@@ -1145,6 +1962,29 @@ struct VerifyStageResult {
     client_verify_ms: f64,
 }
 
+fn apply_verify_result(
+    verify: &VerifyStageResult,
+    client_verify_ms: &mut Option<f64>,
+    verify_overall_ok: &mut Option<bool>,
+    verify_http_ok: &mut bool,
+    verify_signature_ok: &mut Option<bool>,
+    verify_object_ok: &mut Option<bool>,
+    verify_file_hash_match: &mut Option<bool>,
+    verify_error_details: &mut Option<String>,
+) {
+    *client_verify_ms = Some(verify.client_verify_ms);
+    *verify_overall_ok = Some(verify.verify.overall_ok);
+    *verify_http_ok = true;
+    *verify_signature_ok = Some(verify.verify.signature_ok);
+    *verify_object_ok = Some(verify.verify.object_ok);
+    *verify_file_hash_match = Some(verify.verify.file_hash_match);
+    *verify_error_details = if verify.verify.errors.is_empty() {
+        None
+    } else {
+        Some(verify.verify.errors.join(" | "))
+    };
+}
+
 #[derive(Debug)]
 struct PreparedFixture {
     upload: UploadResponse,
@@ -1161,7 +2001,12 @@ struct ArtifactMetrics {
     manifest_core_cbor_bytes: usize,
     manifest_envelope_bytes: usize,
     rsa_signature_bytes: Option<usize>,
-    dilithium_signature_bytes: Option<usize>,
+    eddsa_signature_bytes: Option<usize>,
+    ecdsa_signature_bytes: Option<usize>,
+    hmac_signature_bytes: Option<usize>,
+    ml_dsa_signature_bytes: Option<usize>,
+    slh_dsa_signature_bytes: Option<usize>,
+    fn_dsa_signature_bytes: Option<usize>,
     total_signature_bytes: Option<usize>,
     manifest_overhead_pct: Option<f64>,
     signature_overhead_pct: Option<f64>,
@@ -1173,13 +2018,26 @@ async fn prepare_signed_fixture(
     cli: &Cli,
     condition: &Condition,
     file_path: &Path,
+    scenario: ScenarioKind,
 ) -> Result<PreparedFixture> {
+    // For workflow/sign_only, upload/process are part of the scenario body.
+    // For verify-only scenarios they are fixture setup, so tag errors differently.
+    let (upload_tag, process_tag) = match scenario {
+        ScenarioKind::Workflow | ScenarioKind::SignOnly => ("upload", "process"),
+        _ => ("setup_upload", "setup_process"),
+    };
+
     let upload = upload_dataset_file(client, cli, file_path)
         .await
-        .map_err(|err| stage_error("upload", err))?;
-    let process = process_uploaded_file(client, cli, condition, &upload.upload.file_path)
-        .await
-        .map_err(|err| stage_error("process", err))?;
+        .map_err(|err| stage_error(upload_tag, err))?;
+    let upload_path = upload.upload.file_path.clone();
+    let process = match process_uploaded_file(client, cli, condition, &upload_path).await {
+        Ok(process) => process,
+        Err(err) => {
+            let _ = cleanup_uploaded_file(client, cli, &upload_path).await;
+            return Err(stage_error(process_tag, err));
+        }
+    };
 
     Ok(PreparedFixture {
         request_id: process.process.manifest.core.request_id.clone(),
@@ -1231,6 +2089,23 @@ async fn upload_dataset_file(
     })
 }
 
+async fn cleanup_uploaded_file(client: &Client, cli: &Cli, uploaded_path: &str) -> Result<()> {
+    let cleanup_url = format!("{}/upload/cleanup", cli.base_url.trim_end_matches('/'));
+    let payload = UploadCleanupRequest {
+        file_path: uploaded_path.to_string(),
+    };
+
+    let cleanup_resp = client
+        .post(&cleanup_url)
+        .header("X-API-Key", &cli.api_key)
+        .json(&payload)
+        .send()
+        .await
+        .context("Upload cleanup request failed")?;
+
+    ensure_success_status(cleanup_resp.status(), "cleanup_upload")
+}
+
 async fn process_uploaded_file(
     client: &Client,
     cli: &Cli,
@@ -1240,7 +2115,7 @@ async fn process_uploaded_file(
     let process_url = format!("{}/process", cli.base_url.trim_end_matches('/'));
     let process_payload = ProcessRequest {
         file_path: uploaded_path.to_string(),
-        signature_profile: to_gateway_profile(&condition.signature_profile).to_string(),
+        signature_profile: to_gateway_profile(&condition.signature_profile),
         hash_algorithm: to_gateway_hash(&condition.hash_algorithm).to_string(),
     };
 
@@ -1305,6 +2180,7 @@ async fn fetch_operations_metrics(
     operations_endpoint: &str,
     api_key: &str,
     request_id: &str,
+    scenario: ScenarioKind,
 ) -> Result<OperationMetricsResponse> {
     let url =
         reqwest::Url::parse(operations_endpoint).context("Invalid operations-endpoint URL")?;
@@ -1314,18 +2190,51 @@ async fn fetch_operations_metrics(
         .query_pairs_mut()
         .append_pair("request_id", request_id);
 
-    let resp = client
-        .get(request_url)
-        .header("X-API-Key", api_key)
-        .send()
-        .await
-        .context("Failed calling operations endpoint")?;
+    const MAX_ATTEMPTS: usize = 5;
+    const INITIAL_RETRY_DELAY_MS: u64 = 40;
 
-    if !resp.status().is_success() {
-        bail!("Operations endpoint returned status {}", resp.status());
+    for attempt in 0..MAX_ATTEMPTS {
+        let resp = client
+            .get(request_url.clone())
+            .header("X-API-Key", api_key)
+            .send()
+            .await
+            .context("Failed calling operations endpoint")?;
+
+        if resp.status().is_success() {
+            let record: OperationMetricsResponse = resp
+                .json()
+                .await
+                .context("Failed to parse operations JSON")?;
+            if operation_metrics_ready(&record, scenario) || attempt + 1 == MAX_ATTEMPTS {
+                return Ok(record);
+            }
+        } else if !operations_status_is_retryable(resp.status()) || attempt + 1 == MAX_ATTEMPTS {
+            bail!("Operations endpoint returned status {}", resp.status());
+        }
+
+        let backoff_ms = INITIAL_RETRY_DELAY_MS * (1_u64 << attempt.min(3));
+        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
     }
 
-    resp.json().await.context("Failed to parse operations JSON")
+    unreachable!("operations metrics retry loop should always return or bail")
+}
+
+fn operations_status_is_retryable(status: StatusCode) -> bool {
+    status == StatusCode::NOT_FOUND
+        || status == StatusCode::TOO_MANY_REQUESTS
+        || status.is_server_error()
+}
+
+fn operation_metrics_ready(record: &OperationMetricsResponse, scenario: ScenarioKind) -> bool {
+    match scenario {
+        ScenarioKind::Workflow => record.process.is_some() && record.verify.is_some(),
+        ScenarioKind::SignOnly => record.process.is_some(),
+        ScenarioKind::VerifyManifest
+        | ScenarioKind::VerifyStored
+        | ScenarioKind::VerifyUploaded
+        | ScenarioKind::VerifyFull => record.verify.is_some(),
+    }
 }
 
 fn derive_server_metrics(record: &OperationMetricsResponse) -> ServerMetricValues {
@@ -1363,8 +2272,19 @@ fn derive_server_metrics(record: &OperationMetricsResponse) -> ServerMetricValue
         server_hash_bytes_written: process_hash.map(|metrics| metrics.bytes_written),
         server_manifest_canonicalize_ms: process_manifest.map(|metrics| metrics.canonicalize_ms),
         server_db_persist_ms: process_manifest.map(|metrics| metrics.db_persist_ms),
-        server_rsa_sign_ms: process_manifest.and_then(|metrics| metrics.rsa_sign_ms),
-        server_dilithium_sign_ms: process_manifest.and_then(|metrics| metrics.dilithium_sign_ms),
+        server_rsa_sign_ms: process_manifest.and_then(|m| m.rsa_sign_ms),
+        server_eddsa_sign_ms: process_manifest.and_then(|m| m.eddsa_sign_ms),
+        server_ecdsa_sign_ms: process_manifest.and_then(|m| m.ecdsa_sign_ms),
+        server_hmac_sign_ms: process_manifest.and_then(|m| m.hmac_sign_ms),
+        server_ml_dsa_sign_ms: process_manifest.and_then(|m| m.ml_dsa_sign_ms),
+        server_slh_dsa_sign_ms: process_manifest.and_then(|m| m.slh_dsa_sign_ms),
+        server_fn_dsa_sign_ms: process_manifest.and_then(|m| m.fn_dsa_sign_ms),
+        server_eddsa_verify_ms: verify_manifest.and_then(|m| m.eddsa_verify_ms),
+        server_ecdsa_verify_ms: verify_manifest.and_then(|m| m.ecdsa_verify_ms),
+        server_hmac_verify_ms: verify_manifest.and_then(|m| m.hmac_verify_ms),
+        server_ml_dsa_verify_ms: verify_manifest.and_then(|m| m.ml_dsa_verify_ms),
+        server_slh_dsa_verify_ms: verify_manifest.and_then(|m| m.slh_dsa_verify_ms),
+        server_fn_dsa_verify_ms: verify_manifest.and_then(|m| m.fn_dsa_verify_ms),
         server_manifest_fetch_db_lookup_ms: verify_fetch.map(|metrics| metrics.db_lookup_ms),
         server_verify_hash_ms: verify_hash.map(|metrics| metrics.total_ms),
         server_verify_canonicalize_ms: verify_manifest.map(|metrics| metrics.canonicalize_ms),
@@ -1393,7 +2313,18 @@ fn empty_server_metrics() -> ServerMetricValues {
         server_manifest_canonicalize_ms: None,
         server_db_persist_ms: None,
         server_rsa_sign_ms: None,
-        server_dilithium_sign_ms: None,
+        server_eddsa_sign_ms: None,
+        server_ecdsa_sign_ms: None,
+        server_hmac_sign_ms: None,
+        server_ml_dsa_sign_ms: None,
+        server_slh_dsa_sign_ms: None,
+        server_fn_dsa_sign_ms: None,
+        server_eddsa_verify_ms: None,
+        server_ecdsa_verify_ms: None,
+        server_hmac_verify_ms: None,
+        server_ml_dsa_verify_ms: None,
+        server_slh_dsa_verify_ms: None,
+        server_fn_dsa_verify_ms: None,
         server_manifest_fetch_db_lookup_ms: None,
         server_verify_hash_ms: None,
         server_verify_canonicalize_ms: None,
@@ -1413,6 +2344,10 @@ fn stage_error(stage: &str, err: anyhow::Error) -> anyhow::Error {
 fn classify_error_stage(message: &str) -> &'static str {
     if message.starts_with("upload:") || message.contains("Upload request failed") {
         "upload"
+    } else if message.starts_with("cleanup_upload:")
+        || message.contains("Upload cleanup request failed")
+    {
+        "cleanup_upload"
     } else if message.starts_with("process:") || message.contains("Process request failed") {
         "process"
     } else if message.starts_with("verify:") || message.contains("Verify request failed") {
@@ -1450,19 +2385,27 @@ fn compute_artifact_metrics(manifest: &SignedManifest, file_size: u64) -> Result
     let manifest_envelope_bytes = serde_json::to_vec(&manifest.envelope)
         .context("Failed to compute manifest envelope serialized size")?
         .len();
-    let rsa_signature_bytes = manifest
-        .signatures
-        .rsa_pss
-        .as_ref()
-        .map(|value| base64_decoded_len_approx(value));
-    let dilithium_signature_bytes = manifest
-        .signatures
-        .dilithium
-        .as_ref()
-        .map(|value| base64_decoded_len_approx(value));
-    let total_signature_bytes = match (rsa_signature_bytes, dilithium_signature_bytes) {
-        (None, None) => None,
-        (a, b) => Some(a.unwrap_or(0) + b.unwrap_or(0)),
+    let sig_bytes = |opt: &Option<String>| opt.as_ref().map(|v| base64_decoded_len_approx(v));
+    let rsa_signature_bytes = sig_bytes(&manifest.signatures.rsa_pss);
+    let eddsa_signature_bytes = sig_bytes(&manifest.signatures.eddsa);
+    let ecdsa_signature_bytes = sig_bytes(&manifest.signatures.ecdsa_p256);
+    let hmac_signature_bytes = sig_bytes(&manifest.signatures.hmac_sha256);
+    let ml_dsa_signature_bytes = sig_bytes(&manifest.signatures.ml_dsa);
+    let slh_dsa_signature_bytes = sig_bytes(&manifest.signatures.slh_dsa);
+    let fn_dsa_signature_bytes = sig_bytes(&manifest.signatures.fn_dsa);
+    let all_sig_sizes = [
+        rsa_signature_bytes,
+        eddsa_signature_bytes,
+        ecdsa_signature_bytes,
+        hmac_signature_bytes,
+        ml_dsa_signature_bytes,
+        slh_dsa_signature_bytes,
+        fn_dsa_signature_bytes,
+    ];
+    let total_signature_bytes = if all_sig_sizes.iter().all(|v| v.is_none()) {
+        None
+    } else {
+        Some(all_sig_sizes.iter().filter_map(|v| *v).sum())
     };
 
     Ok(ArtifactMetrics {
@@ -1471,7 +2414,12 @@ fn compute_artifact_metrics(manifest: &SignedManifest, file_size: u64) -> Result
         manifest_core_cbor_bytes,
         manifest_envelope_bytes,
         rsa_signature_bytes,
-        dilithium_signature_bytes,
+        eddsa_signature_bytes,
+        ecdsa_signature_bytes,
+        hmac_signature_bytes,
+        ml_dsa_signature_bytes,
+        slh_dsa_signature_bytes,
+        fn_dsa_signature_bytes,
         total_signature_bytes,
         manifest_overhead_pct: percentage_of_file(manifest_size_bytes as f64, file_size),
         signature_overhead_pct: total_signature_bytes
@@ -1524,16 +2472,12 @@ fn throughput_mib_per_s(file_size_bytes: u64, duration_ms: f64) -> Option<f64> {
 }
 
 fn normalize_profiles(input: &[String]) -> Result<Vec<String>> {
-    let mut out = Vec::new();
+    let mut out: Vec<String> = Vec::new();
     for p in input {
-        let normalized = match p.trim().to_ascii_lowercase().as_str() {
-            "classical" | "classical_only" | "classic" | "rsa" => "classical",
-            "pqc" | "pqc_only" | "dilithium" => "pqc",
-            "hybrid" => "hybrid",
-            other => bail!("Unsupported profile '{}'", other),
-        };
-        if !out.iter().any(|v| v == normalized) {
-            out.push(normalized.to_string());
+        let normalized =
+            normalize_benchmark_profile(p).ok_or_else(|| anyhow!("Unsupported profile '{}'", p))?;
+        if !out.iter().any(|v| v == &normalized) {
+            out.push(normalized);
         }
     }
     Ok(out)
@@ -1542,11 +2486,8 @@ fn normalize_profiles(input: &[String]) -> Result<Vec<String>> {
 fn normalize_hashes(input: &[String]) -> Result<Vec<String>> {
     let mut out = Vec::new();
     for h in input {
-        let normalized = match h.trim().to_ascii_lowercase().as_str() {
-            "sha256" | "sha-256" => "sha256",
-            "keccak" | "keccak256" | "keccak-256" => "keccak256",
-            other => bail!("Unsupported hash algorithm '{}'", other),
-        };
+        let normalized = normalize_benchmark_hash(h)
+            .ok_or_else(|| anyhow!("Unsupported hash algorithm '{}'", h))?;
         if !out.iter().any(|v| v == normalized) {
             out.push(normalized.to_string());
         }
@@ -1565,21 +2506,12 @@ fn normalize_scenarios(input: &[String]) -> Result<Vec<String>> {
     Ok(out)
 }
 
-fn to_gateway_profile(profile: &str) -> &str {
-    match profile {
-        "classical" => "classical_only",
-        "pqc" => "pqc_only",
-        "hybrid" => "hybrid",
-        _ => profile,
-    }
+fn to_gateway_profile(profile: &str) -> String {
+    benchmark_profile_to_service(profile).unwrap_or_else(|| profile.to_string())
 }
 
 fn to_gateway_hash(hash: &str) -> &str {
-    match hash {
-        "sha256" => "SHA256",
-        "keccak256" => "KECCAK256",
-        _ => hash,
-    }
+    benchmark_hash_to_service(hash).unwrap_or(hash)
 }
 
 fn parse_bucket_specs(labels: &[String]) -> Result<Vec<BucketSpec>> {
@@ -1646,10 +2578,33 @@ fn collect_files_recursive_impl(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()
         if metadata.is_dir() {
             collect_files_recursive_impl(&path, out)?;
         } else if metadata.is_file() {
+            if is_dataset_support_file(&path) {
+                continue;
+            }
             out.push(path);
         }
     }
     Ok(())
+}
+
+fn is_dataset_support_file(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|value| value.to_str()),
+        Some("dataset-manifest.csv" | "dataset-metadata.json")
+    )
+}
+
+fn bucket_label_from_path(file: &Path) -> Option<String> {
+    for ancestor in file.ancestors() {
+        let Some(name) = ancestor.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if parse_size_to_bytes(name).is_some() {
+            return Some(name.to_string());
+        }
+    }
+
+    None
 }
 
 fn index_files_by_bucket(
@@ -1662,6 +2617,19 @@ fn index_files_by_bucket(
         .collect();
 
     for file in files {
+        if let Some(path_bucket_label) = bucket_label_from_path(file) {
+            if let Some(bucket) = buckets
+                .iter()
+                .find(|bucket| bucket.label.eq_ignore_ascii_case(&path_bucket_label))
+            {
+                grouped
+                    .entry(bucket.label.clone())
+                    .or_default()
+                    .push(file.clone());
+            }
+            continue;
+        }
+
         let size = std::fs::metadata(file)
             .with_context(|| format!("Failed to read metadata for {}", file.display()))?
             .len();
@@ -1785,27 +2753,106 @@ fn build_condition_summaries(
                 let successes: Vec<&RunRecord> = records
                     .iter()
                     .copied()
-                    .filter(|r| r.scenario_success)
+                    .filter(|r| matches!(r.scenario_status, ScenarioStatus::Ok))
                     .collect();
 
-                let verify_ok = records
+                let verify_applicable_runs = records
+                    .iter()
+                    .filter(|r| {
+                        matches!(r.verify_outcome, VerifyOutcome::Ok | VerifyOutcome::Failed)
+                    })
+                    .count();
+                let verify_ok_runs = records
+                    .iter()
+                    .filter(|r| matches!(r.verify_outcome, VerifyOutcome::Ok))
+                    .count();
+                let verify_applicable_success_rate = if verify_applicable_runs == 0 {
+                    None
+                } else {
+                    Some(verify_ok_runs as f64 / verify_applicable_runs as f64)
+                };
+                // Legacy field: counts verify_ok across all runs (misleading for sign_only = always 0)
+                let legacy_verify_ok = records
                     .iter()
                     .filter(|r| r.verify_overall_ok.unwrap_or(false))
                     .count();
-                let scenario_success = records.iter().filter(|r| r.scenario_success).count();
+                let scenario_success_count = successes.len();
 
+                let server_telemetry_configured = records.iter().any(|r| {
+                    !matches!(
+                        r.server_telemetry_status,
+                        ServerTelemetryStatus::NotConfigured
+                    )
+                });
+                let server_telemetry_available = successes
+                    .iter()
+                    .filter(|r| {
+                        matches!(r.server_telemetry_status, ServerTelemetryStatus::Available)
+                    })
+                    .count();
+                let server_telemetry_coverage = if successes.is_empty() {
+                    0.0
+                } else {
+                    server_telemetry_available as f64 / successes.len() as f64
+                };
+
+                let setup_upload_vals = collect_metric(&successes, |r| r.setup_upload_ms);
+                let setup_process_vals = collect_metric(&successes, |r| r.setup_process_ms);
                 let upload_vals = collect_metric(&successes, |r| r.client_upload_ms);
                 let process_vals = collect_metric(&successes, |r| r.client_process_ms);
                 let verify_vals = collect_metric(&successes, |r| r.client_verify_ms);
                 let total_vals = collect_metric(&successes, |r| r.client_total_ms);
+                let server_process_gateway_vals =
+                    collect_metric(&successes, |r| r.server_process_gateway_ms);
+                let server_verify_gateway_vals =
+                    collect_metric(&successes, |r| r.server_verify_gateway_ms);
                 let server_hash_vals = collect_metric(&successes, |r| r.server_hash_ms);
                 let server_rsa_sign_vals = collect_metric(&successes, |r| r.server_rsa_sign_ms);
-                let server_dilithium_sign_vals =
-                    collect_metric(&successes, |r| r.server_dilithium_sign_ms);
+                let server_eddsa_sign_vals = collect_metric(&successes, |r| r.server_eddsa_sign_ms);
+                let server_ecdsa_sign_vals = collect_metric(&successes, |r| r.server_ecdsa_sign_ms);
+                let server_hmac_sign_vals = collect_metric(&successes, |r| r.server_hmac_sign_ms);
+                let server_ml_dsa_sign_vals =
+                    collect_metric(&successes, |r| r.server_ml_dsa_sign_ms);
+                let server_slh_dsa_sign_vals =
+                    collect_metric(&successes, |r| r.server_slh_dsa_sign_ms);
+                let server_fn_dsa_sign_vals =
+                    collect_metric(&successes, |r| r.server_fn_dsa_sign_ms);
+                let server_eddsa_verify_vals =
+                    collect_metric(&successes, |r| r.server_eddsa_verify_ms);
+                let server_ecdsa_verify_vals =
+                    collect_metric(&successes, |r| r.server_ecdsa_verify_ms);
+                let server_hmac_verify_vals =
+                    collect_metric(&successes, |r| r.server_hmac_verify_ms);
+                let server_ml_dsa_verify_vals =
+                    collect_metric(&successes, |r| r.server_ml_dsa_verify_ms);
+                let server_slh_dsa_verify_vals =
+                    collect_metric(&successes, |r| r.server_slh_dsa_verify_ms);
+                let server_fn_dsa_verify_vals =
+                    collect_metric(&successes, |r| r.server_fn_dsa_verify_ms);
                 let server_verify_vals = collect_metric(&successes, |r| r.server_verify_ms);
                 let server_total_vals = collect_metric(&successes, |r| r.server_total_ms);
                 let manifest_vals =
                     collect_metric(&successes, |r| r.manifest_size_bytes.map(|v| v as f64));
+                let manifest_core_vals =
+                    collect_metric(&successes, |r| r.manifest_core_bytes.map(|v| v as f64));
+                let manifest_core_cbor_vals =
+                    collect_metric(&successes, |r| r.manifest_core_cbor_bytes.map(|v| v as f64));
+                let manifest_envelope_vals =
+                    collect_metric(&successes, |r| r.manifest_envelope_bytes.map(|v| v as f64));
+                let rsa_signature_vals =
+                    collect_metric(&successes, |r| r.rsa_signature_bytes.map(|v| v as f64));
+                let eddsa_signature_vals =
+                    collect_metric(&successes, |r| r.eddsa_signature_bytes.map(|v| v as f64));
+                let ecdsa_signature_vals =
+                    collect_metric(&successes, |r| r.ecdsa_signature_bytes.map(|v| v as f64));
+                let hmac_signature_vals =
+                    collect_metric(&successes, |r| r.hmac_signature_bytes.map(|v| v as f64));
+                let ml_dsa_signature_vals =
+                    collect_metric(&successes, |r| r.ml_dsa_signature_bytes.map(|v| v as f64));
+                let slh_dsa_signature_vals =
+                    collect_metric(&successes, |r| r.slh_dsa_signature_bytes.map(|v| v as f64));
+                let fn_dsa_signature_vals =
+                    collect_metric(&successes, |r| r.fn_dsa_signature_bytes.map(|v| v as f64));
                 let signature_vals =
                     collect_metric(&successes, |r| r.total_signature_bytes.map(|v| v as f64));
                 let manifest_overhead_vals =
@@ -1832,25 +2879,101 @@ fn build_condition_summaries(
                     scenario_success_rate: if records.is_empty() {
                         0.0
                     } else {
-                        scenario_success as f64 / records.len() as f64
+                        scenario_success_count as f64 / records.len() as f64
                     },
+                    verify_applicable_runs,
+                    verify_ok_runs,
+                    verify_applicable_success_rate,
                     verify_success_rate: if records.is_empty() {
                         0.0
                     } else {
-                        verify_ok as f64 / records.len() as f64
+                        legacy_verify_ok as f64 / records.len() as f64
                     },
+                    server_telemetry_configured,
+                    server_telemetry_coverage,
+                    setup_upload_ms: summarize_metric(&setup_upload_vals, bootstrap_samples, seed),
+                    setup_process_ms: summarize_metric(
+                        &setup_process_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
                     upload_ms: summarize_metric(&upload_vals, bootstrap_samples, seed),
                     process_ms: summarize_metric(&process_vals, bootstrap_samples, seed),
                     verify_ms: summarize_metric(&verify_vals, bootstrap_samples, seed),
                     total_ms: summarize_metric(&total_vals, bootstrap_samples, seed),
+                    server_process_gateway_ms: summarize_metric(
+                        &server_process_gateway_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_verify_gateway_ms: summarize_metric(
+                        &server_verify_gateway_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
                     server_hash_ms: summarize_metric(&server_hash_vals, bootstrap_samples, seed),
                     server_rsa_sign_ms: summarize_metric(
                         &server_rsa_sign_vals,
                         bootstrap_samples,
                         seed,
                     ),
-                    server_dilithium_sign_ms: summarize_metric(
-                        &server_dilithium_sign_vals,
+                    server_eddsa_sign_ms: summarize_metric(
+                        &server_eddsa_sign_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_ecdsa_sign_ms: summarize_metric(
+                        &server_ecdsa_sign_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_hmac_sign_ms: summarize_metric(
+                        &server_hmac_sign_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_ml_dsa_sign_ms: summarize_metric(
+                        &server_ml_dsa_sign_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_slh_dsa_sign_ms: summarize_metric(
+                        &server_slh_dsa_sign_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_fn_dsa_sign_ms: summarize_metric(
+                        &server_fn_dsa_sign_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_eddsa_verify_ms: summarize_metric(
+                        &server_eddsa_verify_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_ecdsa_verify_ms: summarize_metric(
+                        &server_ecdsa_verify_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_hmac_verify_ms: summarize_metric(
+                        &server_hmac_verify_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_ml_dsa_verify_ms: summarize_metric(
+                        &server_ml_dsa_verify_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_slh_dsa_verify_ms: summarize_metric(
+                        &server_slh_dsa_verify_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    server_fn_dsa_verify_ms: summarize_metric(
+                        &server_fn_dsa_verify_vals,
                         bootstrap_samples,
                         seed,
                     ),
@@ -1861,6 +2984,56 @@ fn build_condition_summaries(
                     ),
                     server_total_ms: summarize_metric(&server_total_vals, bootstrap_samples, seed),
                     manifest_size_bytes: summarize_metric(&manifest_vals, bootstrap_samples, seed),
+                    manifest_core_bytes: summarize_metric(
+                        &manifest_core_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    manifest_core_cbor_bytes: summarize_metric(
+                        &manifest_core_cbor_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    manifest_envelope_bytes: summarize_metric(
+                        &manifest_envelope_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    rsa_signature_bytes: summarize_metric(
+                        &rsa_signature_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    eddsa_signature_bytes: summarize_metric(
+                        &eddsa_signature_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    ecdsa_signature_bytes: summarize_metric(
+                        &ecdsa_signature_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    hmac_signature_bytes: summarize_metric(
+                        &hmac_signature_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    ml_dsa_signature_bytes: summarize_metric(
+                        &ml_dsa_signature_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    slh_dsa_signature_bytes: summarize_metric(
+                        &slh_dsa_signature_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
+                    fn_dsa_signature_bytes: summarize_metric(
+                        &fn_dsa_signature_vals,
+                        bootstrap_samples,
+                        seed,
+                    ),
                     total_signature_bytes: summarize_metric(
                         &signature_vals,
                         bootstrap_samples,
@@ -1901,10 +3074,8 @@ fn build_condition_summaries(
                         bootstrap_samples,
                         seed,
                     ),
-                    s_pqc_vs_classical_total_median: None,
-                    s_hybrid_vs_classical_total_median: None,
-                    s_pqc_vs_classical_server_total_median: None,
-                    s_hybrid_vs_classical_server_total_median: None,
+                    ratio_vs_rsa_pss_total_median: None,
+                    ratio_vs_rsa_pss_server_total_median: None,
                 }
             },
         )
@@ -1930,7 +3101,7 @@ fn build_condition_summaries(
     let mut baseline_map: HashMap<(String, String, String, String), f64> = HashMap::new();
     let mut server_baseline_map: HashMap<(String, String, String, String), f64> = HashMap::new();
     for summary in &summaries {
-        if summary.signature_profile == "classical" {
+        if summary.signature_profile == "rsa_pss" {
             if let Some(total) = &summary.total_ms {
                 baseline_map.insert(
                     (
@@ -1968,10 +3139,8 @@ fn build_condition_summaries(
         {
             if base > 0.0 {
                 if let Some(total) = &summary.total_ms {
-                    if summary.signature_profile == "pqc" {
-                        summary.s_pqc_vs_classical_total_median = Some(total.median / base);
-                    } else if summary.signature_profile == "hybrid" {
-                        summary.s_hybrid_vs_classical_total_median = Some(total.median / base);
+                    if summary.signature_profile != "rsa_pss" {
+                        summary.ratio_vs_rsa_pss_total_median = Some(total.median / base);
                     }
                 }
             }
@@ -1988,11 +3157,8 @@ fn build_condition_summaries(
         {
             if base > 0.0 {
                 if let Some(total) = &summary.server_total_ms {
-                    if summary.signature_profile == "pqc" {
-                        summary.s_pqc_vs_classical_server_total_median = Some(total.median / base);
-                    } else if summary.signature_profile == "hybrid" {
-                        summary.s_hybrid_vs_classical_server_total_median =
-                            Some(total.median / base);
+                    if summary.signature_profile != "rsa_pss" {
+                        summary.ratio_vs_rsa_pss_server_total_median = Some(total.median / base);
                     }
                 }
             }
@@ -2156,12 +3322,14 @@ async fn write_outputs(
     report: &BenchmarkReport,
     runs: &[RunRecord],
     summaries: &[ConditionSummary],
+    evidence_metrics: &[EvidenceMetricRow],
 ) -> Result<()> {
     let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
 
     let json_path = output_dir.join(format!("benchmark-report-{}.json", ts));
     let runs_csv_path = output_dir.join(format!("benchmark-runs-{}.csv", ts));
     let summary_csv_path = output_dir.join(format!("benchmark-summary-{}.csv", ts));
+    let evidence_csv_path = output_dir.join(format!("benchmark-evidence-metrics-{}.csv", ts));
 
     let json = serde_json::to_string_pretty(report).context("Failed to serialize report JSON")?;
     tokio::fs::write(&json_path, json)
@@ -2187,10 +3355,33 @@ async fn write_outputs(
         writer.flush()?;
     }
 
+    {
+        let mut writer = csv::Writer::from_path(&evidence_csv_path)
+            .with_context(|| format!("Failed to write {}", evidence_csv_path.display()))?;
+        for row in evidence_metrics {
+            writer.serialize(row)?;
+        }
+        writer.flush()?;
+    }
+
     Ok(())
 }
 
 fn flatten_summary_csv(summary: &ConditionSummary) -> ConditionSummaryCsv {
+    let (
+        setup_upload_ms_median,
+        setup_upload_ms_iqr,
+        setup_upload_ms_p95,
+        setup_upload_ms_ci95_low,
+        setup_upload_ms_ci95_high,
+    ) = flatten_metric(&summary.setup_upload_ms);
+    let (
+        setup_process_ms_median,
+        setup_process_ms_iqr,
+        setup_process_ms_p95,
+        setup_process_ms_ci95_low,
+        setup_process_ms_ci95_high,
+    ) = flatten_metric(&summary.setup_process_ms);
     let (upload_ms_median, upload_ms_iqr, upload_ms_p95, upload_ms_ci95_low, upload_ms_ci95_high) =
         flatten_metric(&summary.upload_ms);
     let (
@@ -2204,6 +3395,20 @@ fn flatten_summary_csv(summary: &ConditionSummary) -> ConditionSummaryCsv {
         flatten_metric(&summary.verify_ms);
     let (total_ms_median, total_ms_iqr, total_ms_p95, total_ms_ci95_low, total_ms_ci95_high) =
         flatten_metric(&summary.total_ms);
+    let (
+        server_process_gateway_ms_median,
+        server_process_gateway_ms_iqr,
+        server_process_gateway_ms_p95,
+        server_process_gateway_ms_ci95_low,
+        server_process_gateway_ms_ci95_high,
+    ) = flatten_metric(&summary.server_process_gateway_ms);
+    let (
+        server_verify_gateway_ms_median,
+        server_verify_gateway_ms_iqr,
+        server_verify_gateway_ms_p95,
+        server_verify_gateway_ms_ci95_low,
+        server_verify_gateway_ms_ci95_high,
+    ) = flatten_metric(&summary.server_verify_gateway_ms);
     let (
         server_hash_ms_median,
         server_hash_ms_iqr,
@@ -2219,12 +3424,89 @@ fn flatten_summary_csv(summary: &ConditionSummary) -> ConditionSummaryCsv {
         server_rsa_sign_ms_ci95_high,
     ) = flatten_metric(&summary.server_rsa_sign_ms);
     let (
-        server_dilithium_sign_ms_median,
-        server_dilithium_sign_ms_iqr,
-        server_dilithium_sign_ms_p95,
-        server_dilithium_sign_ms_ci95_low,
-        server_dilithium_sign_ms_ci95_high,
-    ) = flatten_metric(&summary.server_dilithium_sign_ms);
+        server_eddsa_sign_ms_median,
+        server_eddsa_sign_ms_iqr,
+        server_eddsa_sign_ms_p95,
+        server_eddsa_sign_ms_ci95_low,
+        server_eddsa_sign_ms_ci95_high,
+    ) = flatten_metric(&summary.server_eddsa_sign_ms);
+    let (
+        server_ecdsa_sign_ms_median,
+        server_ecdsa_sign_ms_iqr,
+        server_ecdsa_sign_ms_p95,
+        server_ecdsa_sign_ms_ci95_low,
+        server_ecdsa_sign_ms_ci95_high,
+    ) = flatten_metric(&summary.server_ecdsa_sign_ms);
+    let (
+        server_hmac_sign_ms_median,
+        server_hmac_sign_ms_iqr,
+        server_hmac_sign_ms_p95,
+        server_hmac_sign_ms_ci95_low,
+        server_hmac_sign_ms_ci95_high,
+    ) = flatten_metric(&summary.server_hmac_sign_ms);
+    let (
+        server_ml_dsa_sign_ms_median,
+        server_ml_dsa_sign_ms_iqr,
+        server_ml_dsa_sign_ms_p95,
+        server_ml_dsa_sign_ms_ci95_low,
+        server_ml_dsa_sign_ms_ci95_high,
+    ) = flatten_metric(&summary.server_ml_dsa_sign_ms);
+    let (
+        server_slh_dsa_sign_ms_median,
+        server_slh_dsa_sign_ms_iqr,
+        server_slh_dsa_sign_ms_p95,
+        server_slh_dsa_sign_ms_ci95_low,
+        server_slh_dsa_sign_ms_ci95_high,
+    ) = flatten_metric(&summary.server_slh_dsa_sign_ms);
+    let (
+        server_fn_dsa_sign_ms_median,
+        server_fn_dsa_sign_ms_iqr,
+        server_fn_dsa_sign_ms_p95,
+        server_fn_dsa_sign_ms_ci95_low,
+        server_fn_dsa_sign_ms_ci95_high,
+    ) = flatten_metric(&summary.server_fn_dsa_sign_ms);
+    let (
+        server_eddsa_verify_ms_median,
+        server_eddsa_verify_ms_iqr,
+        server_eddsa_verify_ms_p95,
+        server_eddsa_verify_ms_ci95_low,
+        server_eddsa_verify_ms_ci95_high,
+    ) = flatten_metric(&summary.server_eddsa_verify_ms);
+    let (
+        server_ecdsa_verify_ms_median,
+        server_ecdsa_verify_ms_iqr,
+        server_ecdsa_verify_ms_p95,
+        server_ecdsa_verify_ms_ci95_low,
+        server_ecdsa_verify_ms_ci95_high,
+    ) = flatten_metric(&summary.server_ecdsa_verify_ms);
+    let (
+        server_hmac_verify_ms_median,
+        server_hmac_verify_ms_iqr,
+        server_hmac_verify_ms_p95,
+        server_hmac_verify_ms_ci95_low,
+        server_hmac_verify_ms_ci95_high,
+    ) = flatten_metric(&summary.server_hmac_verify_ms);
+    let (
+        server_ml_dsa_verify_ms_median,
+        server_ml_dsa_verify_ms_iqr,
+        server_ml_dsa_verify_ms_p95,
+        server_ml_dsa_verify_ms_ci95_low,
+        server_ml_dsa_verify_ms_ci95_high,
+    ) = flatten_metric(&summary.server_ml_dsa_verify_ms);
+    let (
+        server_slh_dsa_verify_ms_median,
+        server_slh_dsa_verify_ms_iqr,
+        server_slh_dsa_verify_ms_p95,
+        server_slh_dsa_verify_ms_ci95_low,
+        server_slh_dsa_verify_ms_ci95_high,
+    ) = flatten_metric(&summary.server_slh_dsa_verify_ms);
+    let (
+        server_fn_dsa_verify_ms_median,
+        server_fn_dsa_verify_ms_iqr,
+        server_fn_dsa_verify_ms_p95,
+        server_fn_dsa_verify_ms_ci95_low,
+        server_fn_dsa_verify_ms_ci95_high,
+    ) = flatten_metric(&summary.server_fn_dsa_verify_ms);
     let (
         server_verify_ms_median,
         server_verify_ms_iqr,
@@ -2246,6 +3528,76 @@ fn flatten_summary_csv(summary: &ConditionSummary) -> ConditionSummaryCsv {
         manifest_size_ci95_low,
         manifest_size_ci95_high,
     ) = flatten_metric(&summary.manifest_size_bytes);
+    let (
+        manifest_core_bytes_median,
+        manifest_core_bytes_iqr,
+        manifest_core_bytes_p95,
+        manifest_core_bytes_ci95_low,
+        manifest_core_bytes_ci95_high,
+    ) = flatten_metric(&summary.manifest_core_bytes);
+    let (
+        manifest_core_cbor_bytes_median,
+        manifest_core_cbor_bytes_iqr,
+        manifest_core_cbor_bytes_p95,
+        manifest_core_cbor_bytes_ci95_low,
+        manifest_core_cbor_bytes_ci95_high,
+    ) = flatten_metric(&summary.manifest_core_cbor_bytes);
+    let (
+        manifest_envelope_bytes_median,
+        manifest_envelope_bytes_iqr,
+        manifest_envelope_bytes_p95,
+        manifest_envelope_bytes_ci95_low,
+        manifest_envelope_bytes_ci95_high,
+    ) = flatten_metric(&summary.manifest_envelope_bytes);
+    let (
+        rsa_signature_bytes_median,
+        rsa_signature_bytes_iqr,
+        rsa_signature_bytes_p95,
+        rsa_signature_bytes_ci95_low,
+        rsa_signature_bytes_ci95_high,
+    ) = flatten_metric(&summary.rsa_signature_bytes);
+    let (
+        eddsa_signature_bytes_median,
+        eddsa_signature_bytes_iqr,
+        eddsa_signature_bytes_p95,
+        eddsa_signature_bytes_ci95_low,
+        eddsa_signature_bytes_ci95_high,
+    ) = flatten_metric(&summary.eddsa_signature_bytes);
+    let (
+        ecdsa_signature_bytes_median,
+        ecdsa_signature_bytes_iqr,
+        ecdsa_signature_bytes_p95,
+        ecdsa_signature_bytes_ci95_low,
+        ecdsa_signature_bytes_ci95_high,
+    ) = flatten_metric(&summary.ecdsa_signature_bytes);
+    let (
+        hmac_signature_bytes_median,
+        hmac_signature_bytes_iqr,
+        hmac_signature_bytes_p95,
+        hmac_signature_bytes_ci95_low,
+        hmac_signature_bytes_ci95_high,
+    ) = flatten_metric(&summary.hmac_signature_bytes);
+    let (
+        ml_dsa_signature_bytes_median,
+        ml_dsa_signature_bytes_iqr,
+        ml_dsa_signature_bytes_p95,
+        ml_dsa_signature_bytes_ci95_low,
+        ml_dsa_signature_bytes_ci95_high,
+    ) = flatten_metric(&summary.ml_dsa_signature_bytes);
+    let (
+        slh_dsa_signature_bytes_median,
+        slh_dsa_signature_bytes_iqr,
+        slh_dsa_signature_bytes_p95,
+        slh_dsa_signature_bytes_ci95_low,
+        slh_dsa_signature_bytes_ci95_high,
+    ) = flatten_metric(&summary.slh_dsa_signature_bytes);
+    let (
+        fn_dsa_signature_bytes_median,
+        fn_dsa_signature_bytes_iqr,
+        fn_dsa_signature_bytes_p95,
+        fn_dsa_signature_bytes_ci95_low,
+        fn_dsa_signature_bytes_ci95_high,
+    ) = flatten_metric(&summary.fn_dsa_signature_bytes);
     let (
         signature_size_median,
         signature_size_iqr,
@@ -2313,7 +3665,22 @@ fn flatten_summary_csv(summary: &ConditionSummary) -> ConditionSummaryCsv {
         measured_runs_success: summary.measured_runs_success,
         measured_runs_failed: summary.measured_runs_failed,
         scenario_success_rate: summary.scenario_success_rate,
+        verify_applicable_runs: summary.verify_applicable_runs,
+        verify_ok_runs: summary.verify_ok_runs,
+        verify_applicable_success_rate: summary.verify_applicable_success_rate,
         verify_success_rate: summary.verify_success_rate,
+        server_telemetry_configured: summary.server_telemetry_configured,
+        server_telemetry_coverage: summary.server_telemetry_coverage,
+        setup_upload_ms_median,
+        setup_upload_ms_iqr,
+        setup_upload_ms_p95,
+        setup_upload_ms_ci95_low,
+        setup_upload_ms_ci95_high,
+        setup_process_ms_median,
+        setup_process_ms_iqr,
+        setup_process_ms_p95,
+        setup_process_ms_ci95_low,
+        setup_process_ms_ci95_high,
         upload_ms_median,
         upload_ms_iqr,
         upload_ms_p95,
@@ -2334,6 +3701,16 @@ fn flatten_summary_csv(summary: &ConditionSummary) -> ConditionSummaryCsv {
         total_ms_p95,
         total_ms_ci95_low,
         total_ms_ci95_high,
+        server_process_gateway_ms_median,
+        server_process_gateway_ms_iqr,
+        server_process_gateway_ms_p95,
+        server_process_gateway_ms_ci95_low,
+        server_process_gateway_ms_ci95_high,
+        server_verify_gateway_ms_median,
+        server_verify_gateway_ms_iqr,
+        server_verify_gateway_ms_p95,
+        server_verify_gateway_ms_ci95_low,
+        server_verify_gateway_ms_ci95_high,
         server_hash_ms_median,
         server_hash_ms_iqr,
         server_hash_ms_p95,
@@ -2344,11 +3721,66 @@ fn flatten_summary_csv(summary: &ConditionSummary) -> ConditionSummaryCsv {
         server_rsa_sign_ms_p95,
         server_rsa_sign_ms_ci95_low,
         server_rsa_sign_ms_ci95_high,
-        server_dilithium_sign_ms_median,
-        server_dilithium_sign_ms_iqr,
-        server_dilithium_sign_ms_p95,
-        server_dilithium_sign_ms_ci95_low,
-        server_dilithium_sign_ms_ci95_high,
+        server_eddsa_sign_ms_median,
+        server_eddsa_sign_ms_iqr,
+        server_eddsa_sign_ms_p95,
+        server_eddsa_sign_ms_ci95_low,
+        server_eddsa_sign_ms_ci95_high,
+        server_ecdsa_sign_ms_median,
+        server_ecdsa_sign_ms_iqr,
+        server_ecdsa_sign_ms_p95,
+        server_ecdsa_sign_ms_ci95_low,
+        server_ecdsa_sign_ms_ci95_high,
+        server_hmac_sign_ms_median,
+        server_hmac_sign_ms_iqr,
+        server_hmac_sign_ms_p95,
+        server_hmac_sign_ms_ci95_low,
+        server_hmac_sign_ms_ci95_high,
+        server_ml_dsa_sign_ms_median,
+        server_ml_dsa_sign_ms_iqr,
+        server_ml_dsa_sign_ms_p95,
+        server_ml_dsa_sign_ms_ci95_low,
+        server_ml_dsa_sign_ms_ci95_high,
+        server_slh_dsa_sign_ms_median,
+        server_slh_dsa_sign_ms_iqr,
+        server_slh_dsa_sign_ms_p95,
+        server_slh_dsa_sign_ms_ci95_low,
+        server_slh_dsa_sign_ms_ci95_high,
+        server_fn_dsa_sign_ms_median,
+        server_fn_dsa_sign_ms_iqr,
+        server_fn_dsa_sign_ms_p95,
+        server_fn_dsa_sign_ms_ci95_low,
+        server_fn_dsa_sign_ms_ci95_high,
+        server_eddsa_verify_ms_median,
+        server_eddsa_verify_ms_iqr,
+        server_eddsa_verify_ms_p95,
+        server_eddsa_verify_ms_ci95_low,
+        server_eddsa_verify_ms_ci95_high,
+        server_ecdsa_verify_ms_median,
+        server_ecdsa_verify_ms_iqr,
+        server_ecdsa_verify_ms_p95,
+        server_ecdsa_verify_ms_ci95_low,
+        server_ecdsa_verify_ms_ci95_high,
+        server_hmac_verify_ms_median,
+        server_hmac_verify_ms_iqr,
+        server_hmac_verify_ms_p95,
+        server_hmac_verify_ms_ci95_low,
+        server_hmac_verify_ms_ci95_high,
+        server_ml_dsa_verify_ms_median,
+        server_ml_dsa_verify_ms_iqr,
+        server_ml_dsa_verify_ms_p95,
+        server_ml_dsa_verify_ms_ci95_low,
+        server_ml_dsa_verify_ms_ci95_high,
+        server_slh_dsa_verify_ms_median,
+        server_slh_dsa_verify_ms_iqr,
+        server_slh_dsa_verify_ms_p95,
+        server_slh_dsa_verify_ms_ci95_low,
+        server_slh_dsa_verify_ms_ci95_high,
+        server_fn_dsa_verify_ms_median,
+        server_fn_dsa_verify_ms_iqr,
+        server_fn_dsa_verify_ms_p95,
+        server_fn_dsa_verify_ms_ci95_low,
+        server_fn_dsa_verify_ms_ci95_high,
         server_verify_ms_median,
         server_verify_ms_iqr,
         server_verify_ms_p95,
@@ -2364,6 +3796,56 @@ fn flatten_summary_csv(summary: &ConditionSummary) -> ConditionSummaryCsv {
         manifest_size_p95,
         manifest_size_ci95_low,
         manifest_size_ci95_high,
+        manifest_core_bytes_median,
+        manifest_core_bytes_iqr,
+        manifest_core_bytes_p95,
+        manifest_core_bytes_ci95_low,
+        manifest_core_bytes_ci95_high,
+        manifest_core_cbor_bytes_median,
+        manifest_core_cbor_bytes_iqr,
+        manifest_core_cbor_bytes_p95,
+        manifest_core_cbor_bytes_ci95_low,
+        manifest_core_cbor_bytes_ci95_high,
+        manifest_envelope_bytes_median,
+        manifest_envelope_bytes_iqr,
+        manifest_envelope_bytes_p95,
+        manifest_envelope_bytes_ci95_low,
+        manifest_envelope_bytes_ci95_high,
+        rsa_signature_bytes_median,
+        rsa_signature_bytes_iqr,
+        rsa_signature_bytes_p95,
+        rsa_signature_bytes_ci95_low,
+        rsa_signature_bytes_ci95_high,
+        eddsa_signature_bytes_median,
+        eddsa_signature_bytes_iqr,
+        eddsa_signature_bytes_p95,
+        eddsa_signature_bytes_ci95_low,
+        eddsa_signature_bytes_ci95_high,
+        ecdsa_signature_bytes_median,
+        ecdsa_signature_bytes_iqr,
+        ecdsa_signature_bytes_p95,
+        ecdsa_signature_bytes_ci95_low,
+        ecdsa_signature_bytes_ci95_high,
+        hmac_signature_bytes_median,
+        hmac_signature_bytes_iqr,
+        hmac_signature_bytes_p95,
+        hmac_signature_bytes_ci95_low,
+        hmac_signature_bytes_ci95_high,
+        ml_dsa_signature_bytes_median,
+        ml_dsa_signature_bytes_iqr,
+        ml_dsa_signature_bytes_p95,
+        ml_dsa_signature_bytes_ci95_low,
+        ml_dsa_signature_bytes_ci95_high,
+        slh_dsa_signature_bytes_median,
+        slh_dsa_signature_bytes_iqr,
+        slh_dsa_signature_bytes_p95,
+        slh_dsa_signature_bytes_ci95_low,
+        slh_dsa_signature_bytes_ci95_high,
+        fn_dsa_signature_bytes_median,
+        fn_dsa_signature_bytes_iqr,
+        fn_dsa_signature_bytes_p95,
+        fn_dsa_signature_bytes_ci95_low,
+        fn_dsa_signature_bytes_ci95_high,
         signature_size_median,
         signature_size_iqr,
         signature_size_p95,
@@ -2404,11 +3886,8 @@ fn flatten_summary_csv(summary: &ConditionSummary) -> ConditionSummaryCsv {
         server_total_mib_s_p95,
         server_total_mib_s_ci95_low,
         server_total_mib_s_ci95_high,
-        s_pqc_vs_classical_total_median: summary.s_pqc_vs_classical_total_median,
-        s_hybrid_vs_classical_total_median: summary.s_hybrid_vs_classical_total_median,
-        s_pqc_vs_classical_server_total_median: summary.s_pqc_vs_classical_server_total_median,
-        s_hybrid_vs_classical_server_total_median: summary
-            .s_hybrid_vs_classical_server_total_median,
+        ratio_vs_rsa_pss_total_median: summary.ratio_vs_rsa_pss_total_median,
+        ratio_vs_rsa_pss_server_total_median: summary.ratio_vs_rsa_pss_server_total_median,
     }
 }
 
@@ -2431,4 +3910,387 @@ fn flatten_metric(
         ),
         None => (None, None, None, None, None),
     }
+}
+
+/// Load dataset manifest from the dataset directory for host-independent provenance.
+///
+/// Reads `dataset-metadata.json` for the seed and `dataset-manifest.csv` for per-file
+/// entries. Missing files are silently ignored — provenance fields will be None in that case.
+fn load_dataset_manifest(dataset_dir: &Path) -> DatasetManifest {
+    let mut manifest = DatasetManifest::default();
+
+    // Load seed from dataset-metadata.json
+    let metadata_path = dataset_dir.join("dataset-metadata.json");
+    if let Ok(text) = std::fs::read_to_string(&metadata_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(seed) = json.get("seed").and_then(|v| v.as_str()) {
+                manifest.seed = Some(seed.to_string());
+            }
+        }
+    }
+
+    // Load entries from dataset-manifest.csv
+    let csv_path = dataset_dir.join("dataset-manifest.csv");
+    if let Ok(mut reader) = csv::Reader::from_path(&csv_path) {
+        for result in reader.records() {
+            let Ok(record) = result else { continue };
+            let index: u32 = record.get(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+            let file_type = record.get(2).unwrap_or("").to_string();
+            let relative_path = record.get(4).unwrap_or("").to_string();
+            let seed = record.get(5).unwrap_or("").to_string();
+
+            if relative_path.is_empty() {
+                continue;
+            }
+
+            // Key by absolute path for fast lookup during runs.
+            let abs = dataset_dir.join(&relative_path);
+            let abs_str = abs.display().to_string();
+
+            let entry = DatasetFileEntry {
+                index,
+                file_type,
+                relative_path: relative_path.clone(),
+                seed: if seed.is_empty() {
+                    manifest.seed.clone().unwrap_or_default()
+                } else {
+                    seed
+                },
+            };
+            manifest.entries.insert(abs_str, entry);
+        }
+    }
+
+    manifest
+}
+
+fn collect_dataset_file_types(manifest: &DatasetManifest) -> Vec<String> {
+    let mut values = manifest
+        .entries
+        .values()
+        .map(|entry| entry.file_type.clone())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    values.sort();
+    values.dedup();
+    values
+}
+
+/// Specification for a single metric in the evidence table.
+struct EvidenceMetricSpec {
+    name: &'static str,
+    unit: &'static str,
+    scope: &'static str,
+    /// Returns (Some(value), is_applicable_for_this_scenario) from a ConditionSummary.
+    extract: fn(&ConditionSummary) -> (Option<&MetricSummary>, bool),
+}
+
+/// Build the long-form primary evidence metrics table from condition summaries.
+///
+/// Each row represents one (condition, metric) combination with explicit coverage
+/// and applicability metadata. Null values are always interpretable.
+fn build_evidence_metrics(
+    summaries: &[ConditionSummary],
+    _bootstrap_samples: usize,
+    _seed: u64,
+) -> Vec<EvidenceMetricRow> {
+    let specs: &[EvidenceMetricSpec] = &[
+        // ── Setup timings (fixture overhead; present for all scenarios) ────────
+        EvidenceMetricSpec {
+            name: "setup_upload_ms",
+            unit: "ms",
+            scope: "setup",
+            extract: |s| (s.setup_upload_ms.as_ref(), true),
+        },
+        EvidenceMetricSpec {
+            name: "setup_process_ms",
+            unit: "ms",
+            scope: "setup",
+            extract: |s| (s.setup_process_ms.as_ref(), true),
+        },
+        // ── Client end-to-end timings ─────────────────────────────────────────
+        EvidenceMetricSpec {
+            name: "client_total_ms",
+            unit: "ms",
+            scope: "client",
+            extract: |s| (s.total_ms.as_ref(), true),
+        },
+        // ── Server-attributed crypto timings ──────────────────────────────────
+        EvidenceMetricSpec {
+            name: "server_hash_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| (s.server_hash_ms.as_ref(), s.server_telemetry_configured),
+        },
+        EvidenceMetricSpec {
+            name: "server_rsa_sign_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| (s.server_rsa_sign_ms.as_ref(), s.server_telemetry_configured),
+        },
+        EvidenceMetricSpec {
+            name: "server_eddsa_sign_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_eddsa_sign_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_ecdsa_sign_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_ecdsa_sign_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_hmac_sign_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_hmac_sign_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_ml_dsa_sign_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_ml_dsa_sign_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_slh_dsa_sign_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_slh_dsa_sign_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_fn_dsa_sign_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_fn_dsa_sign_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_eddsa_verify_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_eddsa_verify_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_ecdsa_verify_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_ecdsa_verify_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_hmac_verify_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_hmac_verify_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_ml_dsa_verify_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_ml_dsa_verify_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_slh_dsa_verify_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_slh_dsa_verify_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_fn_dsa_verify_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| {
+                (
+                    s.server_fn_dsa_verify_ms.as_ref(),
+                    s.server_telemetry_configured,
+                )
+            },
+        },
+        EvidenceMetricSpec {
+            name: "server_verify_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| (s.server_verify_ms.as_ref(), s.server_telemetry_configured),
+        },
+        EvidenceMetricSpec {
+            name: "server_total_ms",
+            unit: "ms",
+            scope: "server",
+            extract: |s| (s.server_total_ms.as_ref(), s.server_telemetry_configured),
+        },
+        // ── Artifact size metrics (crypto-relevant) ───────────────────────────
+        EvidenceMetricSpec {
+            name: "manifest_core_bytes",
+            unit: "bytes",
+            scope: "artifact",
+            extract: |s| (s.manifest_core_bytes.as_ref(), true),
+        },
+        EvidenceMetricSpec {
+            name: "manifest_core_cbor_bytes",
+            unit: "bytes",
+            scope: "artifact",
+            extract: |s| (s.manifest_core_cbor_bytes.as_ref(), true),
+        },
+        EvidenceMetricSpec {
+            name: "rsa_signature_bytes",
+            unit: "bytes",
+            scope: "artifact",
+            extract: |s| (s.rsa_signature_bytes.as_ref(), true),
+        },
+        EvidenceMetricSpec {
+            name: "eddsa_signature_bytes",
+            unit: "bytes",
+            scope: "artifact",
+            extract: |s| (s.eddsa_signature_bytes.as_ref(), true),
+        },
+        EvidenceMetricSpec {
+            name: "ecdsa_signature_bytes",
+            unit: "bytes",
+            scope: "artifact",
+            extract: |s| (s.ecdsa_signature_bytes.as_ref(), true),
+        },
+        EvidenceMetricSpec {
+            name: "hmac_signature_bytes",
+            unit: "bytes",
+            scope: "artifact",
+            extract: |s| (s.hmac_signature_bytes.as_ref(), true),
+        },
+        EvidenceMetricSpec {
+            name: "ml_dsa_signature_bytes",
+            unit: "bytes",
+            scope: "artifact",
+            extract: |s| (s.ml_dsa_signature_bytes.as_ref(), true),
+        },
+        EvidenceMetricSpec {
+            name: "slh_dsa_signature_bytes",
+            unit: "bytes",
+            scope: "artifact",
+            extract: |s| (s.slh_dsa_signature_bytes.as_ref(), true),
+        },
+        EvidenceMetricSpec {
+            name: "fn_dsa_signature_bytes",
+            unit: "bytes",
+            scope: "artifact",
+            extract: |s| (s.fn_dsa_signature_bytes.as_ref(), true),
+        },
+        EvidenceMetricSpec {
+            name: "total_signature_bytes",
+            unit: "bytes",
+            scope: "artifact",
+            extract: |s| (s.total_signature_bytes.as_ref(), true),
+        },
+    ];
+
+    let mut rows = Vec::new();
+
+    for summary in summaries {
+        // Only emit evidence rows for measured-phase summaries (all summaries are measured).
+        for spec in specs {
+            let (metric_opt, is_applicable) = (spec.extract)(summary);
+
+            let metric_applicability = if !is_applicable {
+                "not_configured"
+            } else if metric_opt.is_none() {
+                // or the scenario doesn't produce this metric. Label as not_applicable.
+                "not_applicable"
+            } else {
+                "applicable"
+            };
+
+            let (n, coverage, median, iqr, p95, ci95_low, ci95_high) = match metric_opt {
+                Some(m) => {
+                    let cov = if summary.measured_runs_success == 0 {
+                        0.0
+                    } else {
+                        m.n as f64 / summary.measured_runs_success as f64
+                    };
+                    (
+                        Some(m.n),
+                        Some(cov),
+                        Some(m.median),
+                        Some(m.iqr),
+                        Some(m.p95),
+                        m.ci95_low,
+                        m.ci95_high,
+                    )
+                }
+                None => (None, None, None, None, None, None, None),
+            };
+
+            rows.push(EvidenceMetricRow {
+                benchmark_scenario: summary.benchmark_scenario.clone(),
+                storage_state: summary.storage_state_label.clone(),
+                signature_profile: summary.signature_profile.clone(),
+                hash_algorithm: summary.hash_algorithm.clone(),
+                bucket: summary.bucket.clone(),
+                metric_name: spec.name.to_string(),
+                metric_unit: spec.unit,
+                metric_scope: spec.scope,
+                metric_applicability,
+                n,
+                coverage,
+                median,
+                iqr,
+                p95,
+                ci95_low,
+                ci95_high,
+            });
+        }
+    }
+
+    rows
 }

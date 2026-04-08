@@ -15,7 +15,9 @@ function SignPage({ onBack }: { onBack: () => void }) {
   const [uploadedFilePath, setUploadedFilePath] = useState<string | null>(null);
   const [fileMetadata, setFileMetadata] = useState<FileMetadata | null>(null);
   const [signatureProfile, setSignatureProfile] = useState<'classical' | 'pqc' | 'hybrid'>('hybrid');
-  const [hashAlgorithm, setHashAlgorithm] = useState<'SHA256' | 'Keccak256'>('SHA256');
+  const [classicalSig, setClassicalSig] = useState<string>('rsa_pss');
+  const [pqcSig, setPqcSig] = useState<string>('ml_dsa');
+  const [hashAlgorithm, setHashAlgorithm] = useState<'SHA256' | 'Keccak256' | 'BLAKE3'>('SHA256');
   const [signing, setSigning] = useState(false);
   const [manifest, setManifest] = useState<SignedManifest | null>(null);
 
@@ -45,7 +47,12 @@ function SignPage({ onBack }: { onBack: () => void }) {
       },
       signatures: {
         rsa_pss: data?.signatures?.rsa_pss ?? data?.rsa_signature?.signature,
-        dilithium: data?.signatures?.dilithium ?? data?.dilithium_signature?.signature,
+        ml_dsa: data?.signatures?.ml_dsa ?? data?.ml_dsa_signature?.signature,
+        eddsa: data?.signatures?.eddsa,
+        ecdsa_p256: data?.signatures?.ecdsa_p256,
+        hmac_sha256: data?.signatures?.hmac_sha256,
+        slh_dsa: data?.signatures?.slh_dsa,
+        fn_dsa: data?.signatures?.fn_dsa,
       },
     };
   };
@@ -66,9 +73,15 @@ function SignPage({ onBack }: { onBack: () => void }) {
     const toastId = toast.loading('Signing file...');
 
     try {
+      const profileStr = signatureProfile === 'classical' 
+        ? classicalSig 
+        : signatureProfile === 'pqc' 
+          ? pqcSig 
+          : `${classicalSig}_${pqcSig}`;
+
       const request: ProcessRequest = {
         file_path: uploadedFilePath,
-        signature_profile: signatureProfile,
+        signature_profile: profileStr,
         hash_algorithm: hashAlgorithm,
         // domain_sep omitted - let server use its configured default (server-controlled for security)
         // schema_version omitted - let server use its configured default (server-controlled for security)
@@ -127,16 +140,48 @@ function SignPage({ onBack }: { onBack: () => void }) {
                     onChange={(e) => setSignatureProfile(e.target.value as any)}
                     className="w-full px-3 py-2 border border-neutral-300 rounded-sm text-base focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
                   >
-                    <option value="classical">Classical (RSA only)</option>
-                    <option value="pqc">Post-Quantum (Dilithium only)</option>
-                    <option value="hybrid">Hybrid (RSA + Dilithium)</option>
+                    <option value="classical">Classical</option>
+                    <option value="pqc">Post-Quantum</option>
+                    <option value="hybrid">Hybrid</option>
                   </select>
-                  <p className="mt-2 text-sm text-neutral-600">
-                    {signatureProfile === 'classical' && 'RSA-4096 signature'}
-                    {signatureProfile === 'pqc' && 'Dilithium signature'}
-                    {signatureProfile === 'hybrid' && 'RSA + Dilithium signatures'}
-                  </p>
                 </div>
+
+                {signatureProfile !== 'pqc' && (
+                  <div className="mb-6">
+                    <label htmlFor="classicalSig" className="block text-sm font-medium text-neutral-900 mb-2">
+                      Classical Signature
+                    </label>
+                    <select
+                      id="classicalSig"
+                      value={classicalSig}
+                      onChange={(e) => setClassicalSig(e.target.value)}
+                      className="w-full px-3 py-2 border border-neutral-300 rounded-sm text-base focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                    >
+                      <option value="rsa_pss">RSA PSS</option>
+                      <option value="eddsa">EdDSA</option>
+                      <option value="ecdsa">ECDSA</option>
+                      <option value="hmac_sha256">HMAC SHA-256</option>
+                    </select>
+                  </div>
+                )}
+
+                {signatureProfile !== 'classical' && (
+                  <div className="mb-6">
+                    <label htmlFor="pqcSig" className="block text-sm font-medium text-neutral-900 mb-2">
+                      Post-Quantum Signature
+                    </label>
+                    <select
+                      id="pqcSig"
+                      value={pqcSig}
+                      onChange={(e) => setPqcSig(e.target.value)}
+                      className="w-full px-3 py-2 border border-neutral-300 rounded-sm text-base focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                    >
+                      <option value="ml_dsa">ML-DSA</option>
+                      <option value="slh_dsa">SLH-DSA</option>
+                      <option value="fn_dsa">FN-DSA</option>
+                    </select>
+                  </div>
+                )}
 
                 <div className="mb-8">
                   <label htmlFor="algorithm" className="block text-sm font-medium text-neutral-900 mb-2">
@@ -150,6 +195,7 @@ function SignPage({ onBack }: { onBack: () => void }) {
                   >
                     <option value="SHA256">SHA-256</option>
                     <option value="Keccak256">Keccak-256</option>
+                    <option value="BLAKE3">BLAKE3</option>
                   </select>
                 </div>
 

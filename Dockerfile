@@ -6,8 +6,6 @@
 FROM rust:bookworm AS chef
 WORKDIR /app
 
-# Cache the cargo-chef install itself so cold builds are less painful.
-# --locked keeps it reproducible (uses Cargo.lock inside the crate).
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo install cargo-chef --locked --version 0.1.67
@@ -17,7 +15,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # Planner stage            #
 ############################
 FROM chef AS planner
-# Keep this minimal: it improves cache stability.
 COPY Cargo.toml Cargo.lock ./
 COPY src/main.rs ./src/main.rs
 COPY src/lib.rs ./src/lib.rs
@@ -30,27 +27,24 @@ RUN cargo chef prepare --recipe-path recipe.json
 ############################
 FROM chef AS builder
 
-# System deps required by aws-lc-sys / ring / etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     clang \
     && rm -rf /var/lib/apt/lists/*
 
-# 1) Build deps only (cached unless Cargo.toml/Cargo.lock/recipe changes)
 COPY --from=planner /app/recipe.json /app/recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
     cargo chef cook --release --recipe-path /app/recipe.json
 
-# 2) Build the actual binaries (cached per-target and per-registry)
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release \
+    cargo build --release --locked \
     --bin api-gateway \
     --bin hasher-service \
     --bin manifest-builder-service && \
@@ -61,34 +55,38 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 
 ############################
-# Runtime stage            #
+# Runtime base stage       #
 ############################
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim AS runtime-base
 WORKDIR /app
 
-# Runtime deps only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# SECURITY: Create non-root user with fixed UID/GID (matches your compose user: 1000:1000)
 RUN groupadd -r -g 1000 pqcuser && \
     useradd  -r -u 1000 -g pqcuser -m -s /sbin/nologin pqcuser && \
     mkdir -p /app /data/uploads /tmp/pqc && \
     chown -R pqcuser:pqcuser /app /data /tmp/pqc
 
-# Copy binaries explicitly to their final paths (less brittle than COPY ... ./)
-COPY --from=builder /app/bin/api-gateway /app/api-gateway
-COPY --from=builder /app/bin/hasher-service /app/hasher-service
-COPY --from=builder /app/bin/manifest-builder-service /app/manifest-builder-service
-
-# Ensure executability (normally preserved, but explicit is safer across environments)
-RUN chmod 0755 /app/api-gateway /app/hasher-service /app/manifest-builder-service
-
 USER pqcuser
 
-EXPOSE 3000 3001 3002
 
-# Default command (docker-compose overrides this per service)
+############################
+# Runtime targets          #
+############################
+FROM runtime-base AS runtime-api-gateway
+COPY --from=builder --chmod=0755 /app/bin/api-gateway /app/api-gateway
+EXPOSE 3000
 CMD ["./api-gateway"]
+
+FROM runtime-base AS runtime-hasher-service
+COPY --from=builder --chmod=0755 /app/bin/hasher-service /app/hasher-service
+EXPOSE 3001
+CMD ["./hasher-service"]
+
+FROM runtime-base AS runtime-manifest-builder-service
+COPY --from=builder --chmod=0755 /app/bin/manifest-builder-service /app/manifest-builder-service
+EXPOSE 3002
+CMD ["./manifest-builder-service"]

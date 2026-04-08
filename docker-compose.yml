@@ -1,29 +1,24 @@
 x-pqc-service: &pqc-service
-  image: pqc-services:dev
   # SECURITY: Run as non-root, limit capabilities
   user: "1000:1000"
   cap_drop: [ "ALL" ]
   cap_add: [ "NET_BIND_SERVICE" ]
   security_opt: [ "no-new-privileges:true" ]
+  pull_policy: never
   networks: [ "pqc-network" ]
 
-services:
-  pqc-build:
-    # A “builder-only” service so `docker compose build` builds one image.
-    # You don't run this container.
-    profiles: [ "build" ]
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-    image: pqc-services:dev
-    command: [ "true" ]
-    environment:
-      REQUIRE_AUTH: "true"
+x-pqc-build: &pqc-build
+  context: .
+  dockerfile: Dockerfile
 
+services:
   api-gateway:
     <<: *pqc-service
     container_name: pqc-api-gateway
+    build:
+      <<: *pqc-build
+      target: runtime-api-gateway
+    image: pqc-api-gateway:dev
     ports: [ "3000:3000" ]
     environment:
       PORT: 3000
@@ -70,6 +65,10 @@ services:
   hasher-service:
     <<: *pqc-service
     container_name: pqc-hasher-service
+    build:
+      <<: *pqc-build
+      target: runtime-hasher-service
+    image: pqc-hasher-service:dev
     environment:
       PORT: 3001
       ENVIRONMENT: ${ENVIRONMENT:-local}
@@ -97,14 +96,29 @@ services:
   manifest-builder-service:
     <<: *pqc-service
     container_name: pqc-manifest-builder-service
+    build:
+      <<: *pqc-build
+      target: runtime-manifest-builder-service
+    image: pqc-manifest-builder-service:dev
     environment:
       PORT: 3002
       ENVIRONMENT: ${ENVIRONMENT:-local}
       RUST_LOG: info
       RSA_PRIVATE_KEY: /app/keys/rsa_private.pem
       RSA_PUBLIC_KEY: /app/keys/rsa_public.pem
-      DILITHIUM_SECRET_KEY: /app/keys/dilithium_sk.bin
-      DILITHIUM_PUBLIC_KEY: /app/keys/dilithium_pk.bin
+      ml_dsa_SECRET_KEY: /app/keys/ml_dsa_sk.bin
+      ml_dsa_PUBLIC_KEY: /app/keys/ml_dsa_pk.bin
+      EDDSA_SECRET_KEY: /app/keys/eddsa_sk.bin
+      EDDSA_PUBLIC_KEY: /app/keys/eddsa_pk.bin
+      ECDSA_SECRET_KEY: /app/keys/ecdsa_sk.bin
+      ECDSA_PUBLIC_KEY: /app/keys/ecdsa_pk.bin
+      HMAC_SECRET_KEY: /app/keys/hmac_secret.bin
+      ML_DSA_SECRET_KEY: /app/keys/ml_dsa_sk.bin
+      ML_DSA_PUBLIC_KEY: /app/keys/ml_dsa_pk.bin
+      SLH_DSA_SECRET_KEY: /app/keys/slh_dsa_sk.bin
+      SLH_DSA_PUBLIC_KEY: /app/keys/slh_dsa_pk.bin
+      fn_dsa_SECRET_KEY: /app/keys/fn_dsa_sk.bin
+      fn_dsa_PUBLIC_KEY: /app/keys/fn_dsa_pk.bin
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-https://minio:9000}
       AWS_CA_BUNDLE: /app/tls/ca-bundle.crt
@@ -120,6 +134,7 @@ services:
     volumes:
       - ./keys:/app/keys:ro
       - ./tls:/app/tls:ro
+      - upload-data:/data/uploads:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -179,7 +194,11 @@ services:
       - ./tls/minio:/certs:ro
     networks: [ "pqc-network" ]
     healthcheck:
-      test: [ "CMD", "curl", "-kf", "https://localhost:9000/minio/health/live" ]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -kf https://localhost:9000/minio/health/live || curl -f http://localhost:9000/minio/health/live",
+        ]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -196,7 +215,9 @@ services:
       - -c
       - |
         set -eu
-        mc alias set local https://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+        if ! mc alias set local "$${MINIO_INIT_ENDPOINT:-https://minio:9000}" "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; then
+          mc alias set local "$${MINIO_INIT_FALLBACK_ENDPOINT:-http://minio:9000}" "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        fi
 
         mc mb --ignore-existing local/${MINIO_BUCKET:-pqc-objects}
 
@@ -211,6 +232,8 @@ services:
       SSL_CERT_FILE: /tls/ca-bundle.crt
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      MINIO_INIT_ENDPOINT: ${MINIO_INIT_ENDPOINT:-}
+      MINIO_INIT_FALLBACK_ENDPOINT: ${MINIO_INIT_FALLBACK_ENDPOINT:-http://minio:9000}
       MINIO_BUCKET: ${MINIO_BUCKET:-pqc-objects}
       MINIO_HASHER_ACCESS_KEY: ${MINIO_HASHER_ACCESS_KEY:?Set MINIO_HASHER_ACCESS_KEY}
       MINIO_HASHER_SECRET_KEY: ${MINIO_HASHER_SECRET_KEY:?Set MINIO_HASHER_SECRET_KEY}

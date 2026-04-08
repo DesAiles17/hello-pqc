@@ -1,73 +1,40 @@
-# React + TypeScript + Vite
+# Web UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This React + TypeScript application is the interactive demonstration interface
+for the `hello-pqc` prototype.
 
-Currently, two official plugins are available:
+It is intentionally lightweight. The UI exists to make the signing and
+verification flow visible to a human operator, not to act as the canonical
+benchmarking interface.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## What The UI Does
 
-## React Compiler
+- API key login and session handling
+- file upload to the gateway
+- selection of signature profile and hash algorithm
+- manifest inspection after signing
+- verification by `request_id` plus uploaded file
+- display of detailed verification checks and metadata
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Important Boundary
 
-## Expanding the ESLint configuration
+The UI does **not** compute cryptographic operations locally.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- hashing happens in the backend hasher service
+- signing happens in the backend manifest builder service
+- verification happens through the backend API flow
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+This keeps the benchmark and security model consistent with the rest of the
+project.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Development
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Install dependencies and start the dev server:
+
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+The app expects the API gateway to be reachable at the configured backend URL
+used by the frontend API client.

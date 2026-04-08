@@ -204,31 +204,24 @@ const ManifestViewer: React.FC<ManifestViewerProps> = ({ manifest }) => {
                     </div>
                     {expandedSections['signatures'] && (
                         <div className="p-4 bg-white space-y-6">
-                            {manifest.signatures.rsa_pss && (
-                                <div className="border-l-4 border-primary-600 pl-4">
-                                    <h4 className="text-sm font-semibold text-neutral-900 mb-4 uppercase tracking-wider">
-                                        RSA Signature
-                                    </h4>
-                                    <Field
-                                        label="Signature (base64)"
-                                        value={manifest.signatures.rsa_pss}
-                                        mono
-                                    />
-                                </div>
-                            )}
+                            {Object.entries(manifest.signatures).map(([key, value]) => {
+                                if (!value) return null;
+                                
+                                const prettyKey = key === 'fn_dsa' ? 'FN-DSA' : key === 'ml_dsa' ? 'ML-DSA' : key === 'slh_dsa' ? 'SLH-DSA' : key === 'hmac_sha256' ? 'HMAC-SHA256' : key === 'ecdsa_p256' ? 'ECDSA P256' : key.replace('_', ' ');
 
-                            {manifest.signatures.dilithium && (
-                                <div className="border-l-4 border-primary-600 pl-4">
-                                    <h4 className="text-sm font-semibold text-neutral-900 mb-4 uppercase tracking-wider">
-                                        Dilithium Signature
-                                    </h4>
-                                    <Field
-                                        label="Signature (base64)"
-                                        value={manifest.signatures.dilithium}
-                                        mono
-                                    />
-                                </div>
-                            )}
+                                return (
+                                    <div key={key} className="border-l-4 border-primary-600 pl-4">
+                                        <h4 className="text-sm font-semibold text-neutral-900 mb-4 uppercase tracking-wider">
+                                            {prettyKey} Signature
+                                        </h4>
+                                        <Field
+                                            label="Signature (base64)"
+                                            value={value as string}
+                                            mono
+                                        />
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                 </section>

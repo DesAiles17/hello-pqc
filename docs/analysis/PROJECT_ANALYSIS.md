@@ -7,8 +7,17 @@ This document reflects the repository state inspected on 2026-03-29.
 This repository is a research prototype for comparing three signing modes over the same file-processing workflow:
 
 - Classical signing: RSA-PSS
-- Post-quantum signing: Dilithium3
-- Hybrid signing: RSA-PSS + Dilithium3 on the same canonical manifest
+- Post-quantum signing: CRYSTALS-ml_dsa Round 3 via `pqcrypto-ml_dsa::ml_dsa`
+- Hybrid signing: RSA-PSS + CRYSTALS-ml_dsa Round 3 on the same canonical manifest
+
+Terminology note:
+
+- the current Rust implementation is based on the pre-FIPS CRYSTALS-ml_dsa
+  Round 3 variant, not FIPS 204 ML-DSA
+- the helper script currently generates RSA-3072 keys, although the runtime
+  code will use whichever RSA key material is supplied
+- hybrid signing is independent dual-signature generation, but it is currently
+  sequential in code rather than parallel
 
 The project is not a generic file-sharing app and it is not positioned as production-ready enterprise infrastructure. Its main purpose is to:
 
@@ -46,7 +55,7 @@ This gives the project two main user-facing modes:
 
 ### API Gateway
 
-Implemented in [`src/bin/api_gateway.rs`](/Users/anna/pqc-hons/src/bin/api_gateway.rs).
+Implemented in [`src/bin/api_gateway.rs`](/home/denys/hello-pqc/src/bin/api_gateway.rs).
 
 Responsibilities:
 
@@ -71,7 +80,7 @@ External endpoints currently exposed:
 
 ### Hasher Service
 
-Implemented in [`src/bin/hasher_service.rs`](/Users/anna/pqc-hons/src/bin/hasher_service.rs).
+Implemented in [`src/bin/hasher_service.rs`](/home/denys/hello-pqc/src/bin/hasher_service.rs).
 
 Responsibilities:
 
@@ -89,13 +98,13 @@ Internal endpoint:
 
 ### Manifest Builder Service
 
-Implemented in [`src/bin/manifest_builder_service.rs`](/Users/anna/pqc-hons/src/bin/manifest_builder_service.rs).
+Implemented in [`src/bin/manifest_builder_service.rs`](/home/denys/hello-pqc/src/bin/manifest_builder_service.rs).
 
 Responsibilities:
 
 - canonical manifest construction
 - RSA-PSS signing
-- Dilithium3 signing
+- CRYSTALS-ml_dsa Round 3 signing
 - hybrid manifest signing
 - manifest persistence in PostgreSQL
 - signature verification
@@ -117,7 +126,9 @@ PostgreSQL:
 - stores signed manifests in `signed_manifests`
 - stores indexed lookup fields such as `request_id`, `owner_key_fingerprint`, `hash`, `immutable_object_id`, `algorithm`, and `created_at`
 - includes a `revoked_at` column checked during verification
-- includes a `manifest_audit_log` table scaffold, but it is not currently written to by application code
+- includes a `manifest_audit_log` table scaffold; structured audit events are
+  now emitted by the gateway for upload/sign/verify, but DB writes to that table
+  are still not implemented
 
 MinIO:
 
@@ -131,7 +142,7 @@ MinIO:
 
 ### Web UI
 
-Implemented under [`web-ui/`](/Users/anna/pqc-hons/web-ui).
+Implemented under [`web-ui/`](/home/denys/hello-pqc/web-ui).
 
 Current capabilities:
 
@@ -145,7 +156,7 @@ Current capabilities:
 
 ### Benchmark CLI
 
-Implemented in [`src/bin/benchmark_cli.rs`](/Users/anna/pqc-hons/src/bin/benchmark_cli.rs).
+Implemented in [`src/bin/benchmark_cli.rs`](/home/denys/hello-pqc/src/bin/benchmark_cli.rs).
 
 Current capabilities:
 
@@ -185,12 +196,19 @@ Current capabilities:
 The code currently uses:
 
 - RSA-PSS for classical signing
-- Dilithium3 for post-quantum signing via `pqcrypto-dilithium`
+- CRYSTALS-ml_dsa Round 3 for post-quantum signing via `pqcrypto-ml_dsa`
+
+Important naming note:
+
+- the crate currently used by this repository exposes the Round 3
+  `ml_dsa` implementation
+- this should not be described as direct FIPS 204 ML-DSA interoperability
+  without qualification
 
 Relevant code:
 
-- RSA signing and verification in [`src/bin/manifest_builder_service.rs`](/Users/anna/pqc-hons/src/bin/manifest_builder_service.rs)
-- Dilithium key generation in [`src/bin/gen_dilithium.rs`](/Users/anna/pqc-hons/src/bin/gen_dilithium.rs)
+- RSA signing and verification in [`src/bin/manifest_builder_service.rs`](/home/denys/hello-pqc/src/bin/manifest_builder_service.rs)
+- project key generation in [`src/bin/gen_keys.rs`](/home/denys/hello-pqc/src/bin/gen_keys.rs)
 
 ### Manifest design
 
@@ -246,22 +264,22 @@ The gateway also accepts user-facing aliases such as:
 Hybrid mode currently means:
 
 - the same canonical manifest bytes are signed by RSA-PSS,
-- the same canonical manifest bytes are signed by Dilithium3,
+- the same canonical manifest bytes are signed by CRYSTALS-ml_dsa Round 3,
 - both signatures are stored in the same signed manifest,
 - verification requires both signatures to pass.
 
 Important current-state note:
 
-- the architecture docs describe hybrid as independent execution and imply parallelism,
-- the current implementation signs RSA first and Dilithium second inside the same request handler,
+- the architecture docs historically described hybrid as parallel,
+- the current implementation signs RSA first and ml_dsa second inside the same request handler,
 - so the signatures are independent, but the code is currently sequential rather than parallel.
 
 ### Important discrepancy: RSA key size
 
-There is a mismatch in the repo today:
+There is a historical mismatch in the repo documentation:
 
-- architecture docs and UI text refer to RSA-4096,
-- the shipped key-generation script [`gen_keys.sh`](/Users/anna/pqc-hons/gen_keys.sh) currently generates RSA-3072.
+- some older architecture notes refer to RSA-4096,
+- the shipped key-generation script [`scripts/dev/gen_keys.sh`](/home/denys/hello-pqc/scripts/dev/gen_keys.sh) currently generates RSA-3072.
 
 The runtime code does not hardcode a key size; it uses whatever PEM key you provide. In practice, the currently provided helper script produces RSA-3072 unless you change it.
 
@@ -280,7 +298,7 @@ The runtime code does not hardcode a key size; it uses whatever PEM key you prov
 - immutable object storage in MinIO
 - canonical manifest generation
 - RSA-PSS signing
-- Dilithium3 signing
+- CRYSTALS-ml_dsa Round 3 signing
 - hybrid signing
 - verification against stored object and uploaded file-derived attributes
 - manifest freshness checking
@@ -306,26 +324,25 @@ The runtime code does not hardcode a key size; it uses whatever PEM key you prov
 - deterministic benchmark dataset generation
 - reproducible benchmark campaign runner
 - output files in JSON and CSV
-- automated analysis helper with interpretation markdown and optional plots
-- sample benchmark outputs already present under [`output/benchmarks/`](/Users/anna/pqc-hons/output/benchmarks)
+- automated evidence-first analysis helper with structured tables and dissertation figures
+- sample benchmark outputs already present under [`output/benchmarks/`](/home/denys/hello-pqc/output/benchmarks)
 
 ### Helper scripts implemented
 
-- [`gen_keys.sh`](/Users/anna/pqc-hons/gen_keys.sh): generate RSA + Dilithium keys
-- [`scripts/generate_tls_certs.sh`](/Users/anna/pqc-hons/scripts/generate_tls_certs.sh): create local CA and service certs
-- [`scripts/generate_benchmark_dataset.py`](/Users/anna/pqc-hons/scripts/generate_benchmark_dataset.py): generate deterministic datasets
-- [`scripts/run_benchmark_campaign.sh`](/Users/anna/pqc-hons/scripts/run_benchmark_campaign.sh): run benchmark + analysis
-- [`scripts/analyze_benchmark_report.py`](/Users/anna/pqc-hons/scripts/analyze_benchmark_report.py): flatten and analyze report output
-- [`scripts/analyze_campaign_manifest.py`](/Users/anna/pqc-hons/scripts/analyze_campaign_manifest.py): aggregate repeat-level benchmark analyses
-- [`reset-db.sh`](/Users/anna/pqc-hons/reset-db.sh): recreate the Postgres volume
+- [`scripts/dev/gen_keys.sh`](/home/denys/hello-pqc/scripts/dev/gen_keys.sh): generate RSA + ml_dsa keys
+- [`scripts/dev/generate_tls_certs.sh`](/home/denys/hello-pqc/scripts/dev/generate_tls_certs.sh): create local CA and service certs
+- [`scripts/generate_benchmark_dataset.py`](/home/denys/hello-pqc/scripts/generate_benchmark_dataset.py): generate deterministic datasets
+- [`scripts/run_benchmark_campaign.sh`](/home/denys/hello-pqc/scripts/run_benchmark_campaign.sh): run benchmark + analysis
+- [`scripts/analyze_benchmark_report.py`](/home/denys/hello-pqc/scripts/analyze_benchmark_report.py): build evidence-first report tables, diagnostics, and figures
+- [`scripts/dev/reset-db.sh`](/home/denys/hello-pqc/scripts/dev/reset-db.sh): recreate the Postgres volume
 
 ### Notable things that are present but not fully wired
 
 - `manifest_audit_log` table exists, but the services do not currently write audit records into it.
-- `src/audit.rs` contains audit helpers and masking utilities, but they are not integrated into request handlers.
+- `src/audit.rs` is now used for structured gateway audit events, but audit persistence is still partial.
 - `revoked_at` is enforced during verification, but there is no public/admin revoke endpoint in the current API.
 - benchmark quality still depends on campaign discipline: state isolation, repeat count, and rate-limit/quota tuning are external to the CLI itself.
-- current analysis policy is threshold-driven for dissertation use and should be treated as explicit methodology, not as a universal production SLA model.
+- campaign validity still depends on report quality gates and repeat stability; figures and tables should be interpreted only when those gates pass.
 
 ## 6. Security Model And Attack Resistance
 
@@ -484,7 +501,7 @@ Implemented controls:
 - internal traffic is normally routed through nginx TLS wrappers on port `3443`
 - PostgreSQL and MinIO host ports are bound to loopback only in compose
 - gateway CORS is explicit, not wildcard
-- web UI has a baseline CSP in [`web-ui/index.html`](/Users/anna/pqc-hons/web-ui/index.html)
+- web UI has a baseline CSP in [`web-ui/index.html`](/home/denys/hello-pqc/web-ui/index.html)
 - web UI stores API key in `sessionStorage`, not `localStorage`
 - web UI expires stored API keys after inactivity
 - web UI clears stored API key on `401`/`403`
@@ -522,33 +539,33 @@ This reduces the risk of:
 
 These are important if you want the document to reflect the actual project state rather than the intended end-state.
 
-1. The optional `/operations` endpoint is not implemented in the gateway today.
-2. Server-side stage timing persistence is not fully present in the running services, so benchmark exports are primarily client-observed unless you add an operations API separately.
+1. The optional `/operations` endpoint is implemented, but reports only contain full server-side attribution when benchmark runs are executed against a stack that persists those metrics and the CLI is pointed at that endpoint.
+2. Some benchmark conditions still fail the generated evidence-quality gates, so conclusions need to stay condition-specific rather than universal.
 3. Hybrid signing is currently sequential in code, not parallel.
 4. Revocation is checked during verification, but there is no revoke management API.
-5. Audit scaffolding exists, but active audit logging is not wired into request handlers or DB writes.
-6. The repository messaging says RSA-4096 in several places, but the bundled key-generation helper currently creates RSA-3072.
-7. The root binary in [`src/main.rs`](/Users/anna/pqc-hons/src/main.rs) states that the old TUI has been removed; the active interfaces are the web UI and CLI tooling.
+5. Audit events are now logged from gateway request handlers, but the database-backed `manifest_audit_log` table is still not populated by application code.
+6. Older repository messaging referred to RSA-4096, but the bundled key-generation helper currently creates RSA-3072.
+7. The root binary in [`src/main.rs`](/home/denys/hello-pqc/src/main.rs) states that the old TUI has been removed; the active interfaces are the web UI and CLI tooling.
 
 ## 8. How To Run The Project
 
 ### 8.1 Generate keys
 
 ```bash
-./gen_keys.sh
+./scripts/dev/gen_keys.sh
 ```
 
 This creates:
 
 - `keys/rsa_private.pem`
 - `keys/rsa_public.pem`
-- `keys/dilithium_sk.bin`
-- `keys/dilithium_pk.bin`
+- `keys/ml_dsa_sk.bin`
+- `keys/ml_dsa_pk.bin`
 
 ### 8.2 Generate local TLS certificates
 
 ```bash
-./scripts/generate_tls_certs.sh
+./scripts/dev/generate_tls_certs.sh
 ```
 
 This creates:
@@ -762,7 +779,7 @@ cargo run --bin benchmark-cli -- \
   --operations-endpoint http://localhost:3000/operations \
   --dataset-dir ./benchmark-dataset \
   --output-dir ./output/benchmarks \
-  --profiles classical,pqc,hybrid \
+  --profiles rsa_pss,ml_dsa,rsa_pss_ml_dsa \
   --hashes sha256,keccak256 \
   --buckets 10KB,100KB,1MB,10MB,50MB \
   --scenarios workflow,sign_only,verify_manifest,verify_stored,verify_uploaded,verify_full \
@@ -789,12 +806,19 @@ Outputs include:
 - `benchmark-report-<timestamp>.json`
 - `benchmark-runs-<timestamp>.csv`
 - `benchmark-summary-<timestamp>.csv`
-- `output/benchmarks/analysis/<report-stem>/interpretation.md`
-- `output/benchmarks/analysis/<report-stem>/ratio_table.csv`
-- `output/benchmarks/analysis/<report-stem>/stage_breakdown.csv`
-- `output/benchmarks/analysis/<report-stem>/scenario_recommendations.csv`
+- `output/benchmarks/analysis/<report-stem>/analysis_manifest.json`
+- `output/benchmarks/analysis/<report-stem>/quality_checks.json`
+- `output/benchmarks/analysis/<report-stem>/condition_quality.csv`
+- `output/benchmarks/analysis/<report-stem>/latency_summary.csv`
+- `output/benchmarks/analysis/<report-stem>/artifact_summary.csv`
+- `output/benchmarks/analysis/<report-stem>/stage_metrics_long.csv`
+- `output/benchmarks/analysis/<report-stem>/comparison_metrics.csv`
+- `output/benchmarks/analysis/<report-stem>/run_diagnostics.csv`
 - `output/benchmarks/campaign-manifest-<label>.tsv`
-- `output/benchmarks/analysis/campaign-manifest-<label>/campaign_recommendation_consensus.csv`
+- `output/benchmarks/analysis/campaign-manifest-<label>/campaign_analysis_manifest.json`
+- `output/benchmarks/analysis/campaign-manifest-<label>/campaign_repeat_overview.csv`
+- `output/benchmarks/analysis/campaign-manifest-<label>/campaign_condition_stability.csv`
+- `output/benchmarks/analysis/campaign-manifest-<label>/campaign_comparison_stability.csv`
 
 ## 10. Example Workflows
 
@@ -804,7 +828,7 @@ Use this when demonstrating the system interactively.
 
 1. Start the backend stack and Vite UI.
 2. Log in with an `operator` key.
-3. Upload a file and sign it in `hybrid` mode with `SHA256`.
+3. Upload a file and sign it in `rsa_pss_ml_dsa` mode with `SHA256`.
 4. Copy the `request_id` from the manifest viewer.
 5. Open `Verify Signature`.
 6. Upload the same file again.
@@ -815,14 +839,14 @@ Use this when demonstrating the system interactively.
    - `file_hash_match` passes,
    - `overall_ok` is `true`.
 
-### Workflow B: Compare classical vs PQC vs hybrid for the same dataset
+### Workflow B: Compare RSA-PSS, ml_dsa, and RSA-PSS + ml_dsa for the same dataset
 
 Use this when generating dissertation evidence.
 
 1. Generate a deterministic dataset.
 2. Fix the same hardware, OS, Docker config, and API limits for the whole run.
 3. Run `benchmark-cli` or `scripts/run_benchmark_campaign.sh` across:
-   - profiles: `classical,pqc,hybrid`
+   - profiles: `rsa_pss,ml_dsa,rsa_pss_ml_dsa`
    - hashes: `sha256,keccak256`
    - buckets: `10KB,100KB,1MB,10MB,50MB`
    - scenarios: `workflow,sign_only,verify_manifest,verify_stored,verify_uploaded,verify_full`
@@ -834,10 +858,12 @@ Use this when generating dissertation evidence.
    - IQR
    - p95
    - 95% CI
-   - `S_pqc`
-   - `S_hybrid`
+   - absolute deltas vs `rsa_pss`
+   - `rsa_pss`-relative ratios
    - server-attributed ratio CIs
    - effect sizes
+   - CV and relative-IQR diagnostics
+   - campaign repeat-stability summaries
    - storage and artifact-overhead metrics
    for your write-up.
 

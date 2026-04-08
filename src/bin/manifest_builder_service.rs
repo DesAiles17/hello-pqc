@@ -12,20 +12,27 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use chrono::{Duration, Utc};
+use ed25519_dalek::{
+    Signature as Ed25519Signature, Signer as _, SigningKey as Ed25519SigningKey,
+    VerifyingKey as Ed25519VerifyingKey,
+};
+use hmac::{Hmac, Mac};
+use p256::ecdsa::{
+    Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
+};
 use pqc_hons::{
+    normalize_service_signature_profile,
     security::{internal_service_auth_middleware, InternalServiceAuthConfig},
-    ErrorResponse, FetchManifestResponse, FetchManifestTimingMetrics, ManifestBuildResponse,
-    ManifestBuildTimingMetrics, ManifestCore, ManifestEnvelope, ManifestRequest, Signatures,
-    SignedManifest, SourceFileMetadata, VerificationCheck, VerificationMetadata, VerifyRequest,
-    VerifyResponse, VerifyTimingMetrics,
+    signatures_satisfy_service_profile, ErrorResponse, FetchManifestResponse,
+    FetchManifestTimingMetrics, ManifestBuildResponse, ManifestBuildTimingMetrics, ManifestCore,
+    ManifestEnvelope, ManifestRequest, Signatures, SignedManifest, SourceFileMetadata,
+    VerificationCheck, VerificationMetadata, VerifyRequest, VerifyResponse, VerifyTimingMetrics,
 };
-use pqcrypto_dilithium::dilithium3::{
-    self, PublicKey as DilithiumPublicKey, SecretKey as DilithiumSecretKey,
+use pqcrypto_falcon::falcon512::{
+    self, DetachedSignature as fn_dsaDetachedSig, PublicKey as fn_dsaPublicKey,
+    SecretKey as fn_dsaSecretKey,
 };
-use pqcrypto_traits::sign::{
-    DetachedSignature as DilithiumSignatureTrait, PublicKey as DilithiumPublicKeyTrait,
-    SecretKey as DilithiumSecretKeyTrait,
-};
+use pqcrypto_traits::sign::{DetachedSignature as PqcDetachedSig, PublicKey, SecretKey};
 use rand::thread_rng;
 use rsa::pss::Signature as RsaPssSignature;
 use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
@@ -98,7 +105,12 @@ fn elapsed_ms(start: Instant) -> f64 {
 #[derive(Default)]
 struct SignatureTimingMetrics {
     rsa_verify_ms: Option<f64>,
-    dilithium_verify_ms: Option<f64>,
+    eddsa_verify_ms: Option<f64>,
+    ecdsa_verify_ms: Option<f64>,
+    hmac_verify_ms: Option<f64>,
+    ml_dsa_verify_ms: Option<f64>,
+    slh_dsa_verify_ms: Option<f64>,
+    fn_dsa_verify_ms: Option<f64>,
     total_ms: f64,
 }
 
@@ -133,10 +145,11 @@ async fn build_manifest(
     let domain_sep = payload.domain_sep.clone().unwrap_or_else(|| {
         std::env::var("MANIFEST_DOMAIN_SEP").unwrap_or_else(|_| "pqc-hons.manifest.v1".to_string())
     });
-    let signature_profile =
-        normalize_signature_profile(payload.signature_profile.clone().unwrap_or_else(|| {
-            std::env::var("SIGNATURE_PROFILE").unwrap_or_else(|_| "hybrid".to_string())
-        }));
+    let signature_profile = normalize_service_signature_profile(
+        &payload.signature_profile.clone().unwrap_or_else(|| {
+            std::env::var("SIGNATURE_PROFILE").unwrap_or_else(|_| "ml_dsa".to_string())
+        }),
+    );
 
     let created_at = Utc::now();
     let source_file_metadata = read_source_file_metadata(&payload.file_path).await;
@@ -179,7 +192,6 @@ async fn build_manifest(
     signing_bytes.extend_from_slice(&canonical);
     let canonicalize_ms = elapsed_ms(canonical_start);
 
-    // Sign the canonical manifest with RSA-PSS and Dilithium
     let rsa_key_path = env_path_required("RSA_PRIVATE_KEY").map_err(|e| {
         error!("Missing RSA private key configuration: {}", e);
         (
@@ -190,95 +202,170 @@ async fn build_manifest(
             }),
         )
     })?;
-    let dilithium_key_path = env_path_required("DILITHIUM_SECRET_KEY").map_err(|e| {
-        error!("Missing Dilithium secret key configuration: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Dilithium secret key is not configured".to_string(),
-                request_id: Some(payload.request_id.clone()),
-            }),
-        )
-    })?;
 
     let mut rsa_pss: Option<String> = None;
-    let mut dilithium: Option<String> = None;
+    let mut eddsa: Option<String> = None;
+    let mut ecdsa_p256: Option<String> = None;
+    let mut hmac_sha256: Option<String> = None;
+    let mut ml_dsa: Option<String> = None;
+    let mut slh_dsa: Option<String> = None;
+    let mut fn_dsa: Option<String> = None;
     let mut rsa_sign_ms: Option<f64> = None;
-    let mut dilithium_sign_ms: Option<f64> = None;
-    match core.signature_profile.as_str() {
-        "classical_only" => {
-            let rsa_start = Instant::now();
-            rsa_pss = Some(sign_rsa_pss(&signing_bytes, &rsa_key_path).map_err(|e| {
-                error!("Failed to sign manifest with RSA-PSS: {}", e);
+    let mut eddsa_sign_ms: Option<f64> = None;
+    let mut ecdsa_sign_ms: Option<f64> = None;
+    let mut hmac_sign_ms: Option<f64> = None;
+    let mut ml_dsa_sign_ms: Option<f64> = None;
+    let mut slh_dsa_sign_ms: Option<f64> = None;
+    let mut fn_dsa_sign_ms: Option<f64> = None;
+
+    macro_rules! sign_or_err {
+        ($fn:expr, $field:ident, $timing:ident, $label:expr) => {{
+            let t = Instant::now();
+            $field = Some($fn.map_err(|e: anyhow::Error| {
+                error!("Failed to sign manifest with {}: {}", $label, e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
-                        error: format!("Failed to sign manifest with RSA-PSS: {}", e),
+                        error: format!("Failed to sign manifest with {}: {}", $label, e),
                         request_id: Some(payload.request_id.clone()),
                     }),
                 )
             })?);
-            rsa_sign_ms = Some(elapsed_ms(rsa_start));
-        }
-        "pqc_only" => {
-            let dilithium_start = Instant::now();
-            dilithium = Some(
-                sign_dilithium(&signing_bytes, &dilithium_key_path).map_err(|e| {
-                    error!("Failed to sign manifest with Dilithium: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            error: format!("Failed to sign manifest with Dilithium: {}", e),
-                            request_id: Some(payload.request_id.clone()),
-                        }),
-                    )
-                })?,
-            );
-            dilithium_sign_ms = Some(elapsed_ms(dilithium_start));
-        }
-        "hybrid" => {
-            let rsa_start = Instant::now();
-            rsa_pss = Some(sign_rsa_pss(&signing_bytes, &rsa_key_path).map_err(|e| {
-                error!("Failed to sign manifest with RSA-PSS: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: format!("Failed to sign manifest with RSA-PSS: {}", e),
-                        request_id: Some(payload.request_id.clone()),
-                    }),
-                )
-            })?);
-            rsa_sign_ms = Some(elapsed_ms(rsa_start));
-            let dilithium_start = Instant::now();
-            dilithium = Some(
-                sign_dilithium(&signing_bytes, &dilithium_key_path).map_err(|e| {
-                    error!("Failed to sign manifest with Dilithium: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            error: format!("Failed to sign manifest with Dilithium: {}", e),
-                            request_id: Some(payload.request_id.clone()),
-                        }),
-                    )
-                })?,
-            );
-            dilithium_sign_ms = Some(elapsed_ms(dilithium_start));
-        }
-        other => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!(
-                        "Invalid signature profile '{}'. Use 'classical_only', 'pqc_only', or 'hybrid'.",
-                        other
-                    ),
-                    request_id: Some(payload.request_id.clone()),
-                }),
-            ));
-        }
+            $timing = Some(elapsed_ms(t));
+        }};
     }
 
-    if !signatures_satisfy_profile(&core.signature_profile, &rsa_pss, &dilithium) {
+    let profile = core.signature_profile.as_str();
+
+    let rsa_required = profile == "rsa_pss" || profile.starts_with("rsa_pss_");
+    let eddsa_required = profile == "eddsa" || profile.starts_with("eddsa_");
+    let ecdsa_required = profile == "ecdsa" || profile.starts_with("ecdsa_");
+    let hmac_required = profile == "hmac_sha256" || profile.starts_with("hmac_sha256_");
+    let ml_dsa_required = profile == "ml_dsa" || profile.ends_with("_ml_dsa");
+    let slh_dsa_required = profile == "slh_dsa" || profile.ends_with("_slh_dsa");
+    let fn_dsa_required = profile == "fn_dsa" || profile.ends_with("_fn_dsa");
+
+    if rsa_required {
+        sign_or_err!(
+            sign_rsa_pss(&signing_bytes, &rsa_key_path),
+            rsa_pss,
+            rsa_sign_ms,
+            "RSA-PSS"
+        );
+    }
+    if eddsa_required {
+        let key_path = env_path_required("EDDSA_SECRET_KEY").map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    request_id: Some(payload.request_id.clone()),
+                }),
+            )
+        })?;
+        sign_or_err!(
+            sign_eddsa(&signing_bytes, &key_path),
+            eddsa,
+            eddsa_sign_ms,
+            "EdDSA"
+        );
+    }
+    if ecdsa_required {
+        let key_path = env_path_required("ECDSA_SECRET_KEY").map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    request_id: Some(payload.request_id.clone()),
+                }),
+            )
+        })?;
+        sign_or_err!(
+            sign_ecdsa_p256(&signing_bytes, &key_path),
+            ecdsa_p256,
+            ecdsa_sign_ms,
+            "ECDSA P-256"
+        );
+    }
+    if hmac_required {
+        let key_path = env_path_required("HMAC_SECRET_KEY").map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    request_id: Some(payload.request_id.clone()),
+                }),
+            )
+        })?;
+        sign_or_err!(
+            sign_hmac_sha256(&signing_bytes, &key_path),
+            hmac_sha256,
+            hmac_sign_ms,
+            "HMAC-SHA256"
+        );
+    }
+    if ml_dsa_required {
+        let key_path = env_path_required("ML_DSA_SECRET_KEY").map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    request_id: Some(payload.request_id.clone()),
+                }),
+            )
+        })?;
+        sign_or_err!(
+            sign_ml_dsa(&signing_bytes, &key_path),
+            ml_dsa,
+            ml_dsa_sign_ms,
+            "ML-DSA-65"
+        );
+    }
+    if slh_dsa_required {
+        let key_path = env_path_required("SLH_DSA_SECRET_KEY").map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    request_id: Some(payload.request_id.clone()),
+                }),
+            )
+        })?;
+        sign_or_err!(
+            sign_slh_dsa(&signing_bytes, &key_path),
+            slh_dsa,
+            slh_dsa_sign_ms,
+            "SLH-DSA"
+        );
+    }
+    if fn_dsa_required {
+        let key_path = env_path_required("fn_dsa_SECRET_KEY").map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    request_id: Some(payload.request_id.clone()),
+                }),
+            )
+        })?;
+        sign_or_err!(
+            sign_fn_dsa(&signing_bytes, &key_path),
+            fn_dsa,
+            fn_dsa_sign_ms,
+            "fn_dsa-512"
+        );
+    }
+
+    let all_sigs = Signatures {
+        rsa_pss,
+        eddsa,
+        ecdsa_p256,
+        hmac_sha256,
+        ml_dsa,
+        slh_dsa,
+        fn_dsa,
+    };
+    if !signatures_satisfy_service_profile(&core.signature_profile, &all_sigs) {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -294,7 +381,7 @@ async fn build_manifest(
     let signed_manifest = SignedManifest {
         core,
         envelope,
-        signatures: Signatures { rsa_pss, dilithium },
+        signatures: all_sigs,
     };
 
     let signed_manifest_json = serde_json::to_value(&signed_manifest).map_err(|e| {
@@ -354,7 +441,12 @@ async fn build_manifest(
         metrics: Some(ManifestBuildTimingMetrics {
             canonicalize_ms,
             rsa_sign_ms,
-            dilithium_sign_ms,
+            eddsa_sign_ms,
+            ecdsa_sign_ms,
+            hmac_sign_ms,
+            ml_dsa_sign_ms,
+            slh_dsa_sign_ms,
+            fn_dsa_sign_ms,
             db_persist_ms,
             total_ms: elapsed_ms(total_start),
         }),
@@ -560,10 +652,7 @@ async fn verify_manifest(
         },
     );
 
-    let algorithm_supported = matches!(
-        signed_manifest.core.algorithm.to_ascii_uppercase().as_str(),
-        "SHA256" | "SHA-256" | "KECCAK" | "KECCAK256" | "KECCAK-256"
-    );
+    let algorithm_supported = is_supported_manifest_hash_algorithm(&signed_manifest.core.algorithm);
     if !algorithm_supported {
         errors.push(format!(
             "Unsupported hash algorithm '{}'",
@@ -909,7 +998,12 @@ async fn verify_manifest(
             canonicalize_ms,
             signature_verify_ms: stored_signature_metrics.total_ms,
             rsa_verify_ms: stored_signature_metrics.rsa_verify_ms,
-            dilithium_verify_ms: stored_signature_metrics.dilithium_verify_ms,
+            eddsa_verify_ms: stored_signature_metrics.eddsa_verify_ms,
+            ecdsa_verify_ms: stored_signature_metrics.ecdsa_verify_ms,
+            hmac_verify_ms: stored_signature_metrics.hmac_verify_ms,
+            ml_dsa_verify_ms: stored_signature_metrics.ml_dsa_verify_ms,
+            slh_dsa_verify_ms: stored_signature_metrics.slh_dsa_verify_ms,
+            fn_dsa_verify_ms: stored_signature_metrics.fn_dsa_verify_ms,
             stored_object_verify_ms,
             stored_object_bytes_read,
             uploaded_content_verify_ms: uploaded_signature_metrics.total_ms,
@@ -953,8 +1047,26 @@ fn normalize_hash_algorithm_label(input: &str) -> String {
     match input.trim().to_ascii_uppercase().as_str() {
         "SHA256" | "SHA-256" => "SHA256".to_string(),
         "KECCAK" | "KECCAK256" | "KECCAK-256" => "KECCAK".to_string(),
+        "BLAKE3" => "BLAKE3".to_string(),
+        "ARGON2ID" | "ARGON2" => "ARGON2ID".to_string(),
+        "SHAKE256" => "SHAKE256".to_string(),
+        "SHA3-512" | "SHA3_512" => "SHA3-512".to_string(),
         other => other.to_string(),
     }
+}
+
+fn is_supported_manifest_hash_algorithm(input: &str) -> bool {
+    matches!(
+        normalize_hash_algorithm_label(input).as_str(),
+        "SHA256" | "KECCAK" | "BLAKE3" | "SHA3-512" | "SHAKE256" | "ARGON2ID"
+    )
+}
+
+fn is_stream_verifiable_manifest_hash_algorithm(input: &str) -> bool {
+    matches!(
+        normalize_hash_algorithm_label(input).as_str(),
+        "SHA256" | "KECCAK" | "BLAKE3" | "SHA3-512"
+    )
 }
 
 /// New endpoint to just fetch a manifest without verification
@@ -1111,43 +1223,6 @@ fn sign_rsa_pss(message: &[u8], key_path: &Path) -> Result<String> {
     Ok(STANDARD_NO_PAD.encode(signature.to_bytes()))
 }
 
-fn sign_dilithium(message: &[u8], key_path: &Path) -> Result<String> {
-    enforce_secret_file_permissions(key_path)?;
-    let sk_bytes = std::fs::read(key_path).with_context(|| {
-        format!(
-            "Failed to read Dilithium secret key from {}",
-            key_path.display()
-        )
-    })?;
-    let sk = DilithiumSecretKey::from_bytes(&sk_bytes)
-        .map_err(|_| anyhow!("Invalid Dilithium secret key bytes"))?;
-    let signature = dilithium3::detached_sign(message, &sk);
-    Ok(STANDARD_NO_PAD.encode(signature.as_bytes()))
-}
-
-fn signatures_satisfy_profile(
-    profile: &str,
-    rsa_pss: &Option<String>,
-    dilithium: &Option<String>,
-) -> bool {
-    match profile {
-        "classical_only" => rsa_pss.is_some() && dilithium.is_none(),
-        "pqc_only" => rsa_pss.is_none() && dilithium.is_some(),
-        "hybrid" => rsa_pss.is_some() && dilithium.is_some(),
-        _ => false,
-    }
-}
-
-fn normalize_signature_profile(input: String) -> String {
-    let trimmed = input.trim().to_ascii_lowercase();
-    match trimmed.as_str() {
-        "classic" | "classical" | "rsa" | "classical_only" => "classical_only".to_string(),
-        "pqc" | "dilithium" | "pqc_only" => "pqc_only".to_string(),
-        "hybrid" => "hybrid".to_string(),
-        _ => input,
-    }
-}
-
 fn canonical_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
     ciborium::into_writer(value, &mut buf)?;
@@ -1162,15 +1237,10 @@ fn verify_signatures(
 ) -> (bool, SignatureTimingMetrics) {
     let total_start = Instant::now();
     let profile = signed.core.signature_profile.as_str();
-    let rsa_required = matches!(profile, "classical_only" | "hybrid");
-    let dilithium_required = matches!(profile, "pqc_only" | "hybrid");
+    let rsa_required = profile == "rsa_pss" || profile.starts_with("rsa_pss_");
     let mut metrics = SignatureTimingMetrics::default();
 
-    let profile_conformant = signatures_satisfy_profile(
-        profile,
-        &signed.signatures.rsa_pss,
-        &signed.signatures.dilithium,
-    );
+    let profile_conformant = signatures_satisfy_service_profile(profile, &signed.signatures);
     if !profile_conformant {
         errors.push(format!(
             "Signature set does not satisfy profile '{}'",
@@ -1237,64 +1307,133 @@ fn verify_signatures(
         false
     };
 
-    let dilithium_ok = if let Some(sig) = &signed.signatures.dilithium {
-        let dilithium_start = Instant::now();
-        let outcome = verify_dilithium(signing_bytes, sig);
-        metrics.dilithium_verify_ms = Some(elapsed_ms(dilithium_start));
-        match outcome {
-            Ok(true) => {
-                add_check(
-                    checks,
-                    "signature.dilithium_valid",
-                    true,
-                    "Dilithium signature verified",
-                );
-                true
-            }
-            Ok(false) => {
-                errors.push("Dilithium signature verification failed".to_string());
-                add_check(
-                    checks,
-                    "signature.dilithium_valid",
-                    false,
-                    "Dilithium signature failed verification",
-                );
-                false
-            }
-            Err(e) => {
-                errors.push(format!("Dilithium verification error: {}", e));
-                add_check(
-                    checks,
-                    "signature.dilithium_valid",
-                    false,
-                    "Dilithium signature verification errored",
-                );
-                false
-            }
-        }
-    } else {
-        add_check(
-            checks,
-            "signature.dilithium_present",
-            !dilithium_required,
-            if dilithium_required {
-                "Dilithium signature is required but missing"
-            } else {
-                "Dilithium signature is not required for this profile"
-            },
-        );
-        false
-    };
+    let eddsa_required = profile == "eddsa" || profile.starts_with("eddsa_");
+    let eddsa_pk_path = env_path_required("EDDSA_PUBLIC_KEY").ok();
+    let eddsa_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.eddsa.as_deref(),
+        eddsa_required,
+        "eddsa",
+        "EdDSA",
+        |msg, sig| {
+            eddsa_pk_path
+                .as_deref()
+                .map_or(Err(anyhow!("EDDSA_PUBLIC_KEY not set")), |p| {
+                    verify_eddsa(msg, sig, p)
+                })
+        },
+        &mut metrics.eddsa_verify_ms,
+        checks,
+        errors,
+    );
 
-    let signature_ok = match profile {
-        "classical_only" => rsa_ok && signed.signatures.dilithium.is_none(),
-        "pqc_only" => dilithium_ok && signed.signatures.rsa_pss.is_none(),
-        "hybrid" => rsa_ok && dilithium_ok,
-        _ => {
-            errors.push(format!("Unknown signature profile '{}'", profile));
-            false
-        }
-    };
+    let ecdsa_required = profile == "ecdsa" || profile.starts_with("ecdsa_");
+    let ecdsa_pk_path = env_path_required("ECDSA_PUBLIC_KEY").ok();
+    let ecdsa_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.ecdsa_p256.as_deref(),
+        ecdsa_required,
+        "ecdsa_p256",
+        "ECDSA P-256",
+        |msg, sig| {
+            ecdsa_pk_path
+                .as_deref()
+                .map_or(Err(anyhow!("ECDSA_PUBLIC_KEY not set")), |p| {
+                    verify_ecdsa_p256(msg, sig, p)
+                })
+        },
+        &mut metrics.ecdsa_verify_ms,
+        checks,
+        errors,
+    );
+
+    let hmac_required = profile == "hmac_sha256" || profile.starts_with("hmac_sha256_");
+    let hmac_key_path = env_path_required("HMAC_SECRET_KEY").ok();
+    let hmac_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.hmac_sha256.as_deref(),
+        hmac_required,
+        "hmac_sha256",
+        "HMAC-SHA256",
+        |msg, sig| {
+            hmac_key_path
+                .as_deref()
+                .map_or(Err(anyhow!("HMAC_SECRET_KEY not set")), |p| {
+                    verify_hmac_sha256(msg, sig, p)
+                })
+        },
+        &mut metrics.hmac_verify_ms,
+        checks,
+        errors,
+    );
+
+    let ml_dsa_required = profile == "ml_dsa" || profile.ends_with("_ml_dsa");
+    let ml_dsa_pk_path = env_path_required("ML_DSA_PUBLIC_KEY").ok();
+    let ml_dsa_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.ml_dsa.as_deref(),
+        ml_dsa_required,
+        "ml_dsa",
+        "ML-DSA-65",
+        |msg, sig| {
+            ml_dsa_pk_path
+                .as_deref()
+                .map_or(Err(anyhow!("ML_DSA_PUBLIC_KEY not set")), |p| {
+                    verify_ml_dsa(msg, sig, p)
+                })
+        },
+        &mut metrics.ml_dsa_verify_ms,
+        checks,
+        errors,
+    );
+
+    let slh_dsa_required = profile == "slh_dsa" || profile.ends_with("_slh_dsa");
+    let slh_dsa_pk_path = env_path_required("SLH_DSA_PUBLIC_KEY").ok();
+    let slh_dsa_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.slh_dsa.as_deref(),
+        slh_dsa_required,
+        "slh_dsa",
+        "SLH-DSA",
+        |msg, sig| {
+            slh_dsa_pk_path
+                .as_deref()
+                .map_or(Err(anyhow!("SLH_DSA_PUBLIC_KEY not set")), |p| {
+                    verify_slh_dsa(msg, sig, p)
+                })
+        },
+        &mut metrics.slh_dsa_verify_ms,
+        checks,
+        errors,
+    );
+
+    let fn_dsa_required = profile == "fn_dsa" || profile.ends_with("_fn_dsa");
+    let fn_dsa_pk_path = env_path_required("fn_dsa_PUBLIC_KEY").ok();
+    let fn_dsa_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.fn_dsa.as_deref(),
+        fn_dsa_required,
+        "fn_dsa",
+        "fn_dsa-512",
+        |msg, sig| {
+            fn_dsa_pk_path
+                .as_deref()
+                .map_or(Err(anyhow!("fn_dsa_PUBLIC_KEY not set")), |p| {
+                    verify_fn_dsa(msg, sig, p)
+                })
+        },
+        &mut metrics.fn_dsa_verify_ms,
+        checks,
+        errors,
+    );
+    let signature_ok = 
+        (!rsa_required || rsa_ok) &&
+        (!eddsa_required || eddsa_ok) &&
+        (!ecdsa_required || ecdsa_ok) &&
+        (!hmac_required || hmac_ok) &&
+        (!ml_dsa_required || ml_dsa_ok) &&
+        (!slh_dsa_required || slh_dsa_ok) &&
+        (!fn_dsa_required || fn_dsa_ok);
 
     add_check(
         checks,
@@ -1319,8 +1458,7 @@ fn verify_signatures_against_uploaded_content(
 ) -> (bool, SignatureTimingMetrics) {
     let total_start = Instant::now();
     let profile = signed.core.signature_profile.as_str();
-    let rsa_required = matches!(profile, "classical_only" | "hybrid");
-    let dilithium_required = matches!(profile, "pqc_only" | "hybrid");
+    let rsa_required = profile == "rsa_pss" || profile.starts_with("rsa_pss_");
     let mut metrics = SignatureTimingMetrics::default();
 
     let rsa_ok = if let Some(sig) = &signed.signatures.rsa_pss {
@@ -1378,70 +1516,140 @@ fn verify_signatures_against_uploaded_content(
         false
     };
 
-    let dilithium_ok = if let Some(sig) = &signed.signatures.dilithium {
-        let dilithium_start = Instant::now();
-        let outcome = verify_dilithium(signing_bytes, sig);
-        metrics.dilithium_verify_ms = Some(elapsed_ms(dilithium_start));
-        match outcome {
-            Ok(true) => {
-                add_check(
-                    checks,
-                    "file.signature_dilithium_matches_uploaded_content",
-                    true,
-                    "Dilithium signature matches uploaded-file-derived manifest content",
-                );
-                true
-            }
-            Ok(false) => {
-                errors.push(
-                    "Dilithium signature does not match uploaded-file-derived manifest content"
-                        .to_string(),
-                );
-                add_check(
-                    checks,
-                    "file.signature_dilithium_matches_uploaded_content",
-                    false,
-                    "Dilithium signature does not match uploaded-file-derived manifest content",
-                );
-                false
-            }
-            Err(e) => {
-                errors.push(format!(
-                    "Dilithium verification error for uploaded-file-derived manifest content: {}",
-                    e
-                ));
-                add_check(
-                    checks,
-                    "file.signature_dilithium_matches_uploaded_content",
-                    false,
-                    "Dilithium verification errored for uploaded-file-derived manifest content",
-                );
-                false
-            }
-        }
-    } else {
-        add_check(
-            checks,
-            "file.signature_dilithium_present",
-            !dilithium_required,
-            if dilithium_required {
-                "Dilithium signature is required but missing"
-            } else {
-                "Dilithium signature is not required for this profile"
-            },
-        );
-        false
-    };
+    let eddsa_required = profile == "eddsa" || profile.starts_with("eddsa_");
+    let eddsa_pk_path = env_path_required("EDDSA_PUBLIC_KEY").ok();
+    let eddsa_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.eddsa.as_deref(),
+        eddsa_required,
+        "eddsa",
+        "EdDSA",
+        |msg, sig| {
+            eddsa_pk_path
+                .as_deref()
+                .map_or(Err(anyhow!("EDDSA_PUBLIC_KEY not set")), |p| {
+                    verify_eddsa(msg, sig, p)
+                })
+        },
+        &mut metrics.eddsa_verify_ms,
+        checks,
+        errors,
+    );
 
-    let signature_match_uploaded_content = match profile {
-        "classical_only" => rsa_ok && signed.signatures.dilithium.is_none(),
-        "pqc_only" => dilithium_ok && signed.signatures.rsa_pss.is_none(),
-        "hybrid" => rsa_ok && dilithium_ok,
-        _ => {
-            errors.push(format!("Unknown signature profile '{}'", profile));
-            false
-        }
-    };
+    let ecdsa_required = profile == "ecdsa" || profile.starts_with("ecdsa_");
+    let ecdsa_pk_path = env_path_required("ECDSA_PUBLIC_KEY").ok();
+    let ecdsa_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.ecdsa_p256.as_deref(),
+        ecdsa_required,
+        "ecdsa_p256",
+        "ECDSA P-256",
+        |msg, sig| {
+            ecdsa_pk_path
+                .as_deref()
+                .map_or(Err(anyhow!("ECDSA_PUBLIC_KEY not set")), |p| {
+                    verify_ecdsa_p256(msg, sig, p)
+                })
+        },
+        &mut metrics.ecdsa_verify_ms,
+        checks,
+        errors,
+    );
+
+    let hmac_required = profile == "hmac_sha256" || profile.starts_with("hmac_sha256_");
+    let hmac_key_path = env_path_required("HMAC_SECRET_KEY").ok();
+    let hmac_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.hmac_sha256.as_deref(),
+        hmac_required,
+        "hmac_sha256",
+        "HMAC-SHA256",
+        |msg, sig| {
+            hmac_key_path
+                .as_deref()
+                .map_or(Err(anyhow!("HMAC_SECRET_KEY not set")), |p| {
+                    verify_hmac_sha256(msg, sig, p)
+                })
+        },
+        &mut metrics.hmac_verify_ms,
+        checks,
+        errors,
+    );
+
+    let ml_dsa_required = profile == "ml_dsa" || profile.ends_with("_ml_dsa");
+    let ml_dsa_pk_path = env_path_required("ML_DSA_PUBLIC_KEY").ok();
+    let ml_dsa_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.ml_dsa.as_deref(),
+        ml_dsa_required,
+        "ml_dsa",
+        "ML-DSA-65",
+        |msg, sig| {
+            ml_dsa_pk_path
+                .as_deref()
+                .map_or(Err(anyhow!("ML_DSA_PUBLIC_KEY not set")), |p| {
+                    verify_ml_dsa(msg, sig, p)
+                })
+        },
+        &mut metrics.ml_dsa_verify_ms,
+        checks,
+        errors,
+    );
+
+    let slh_dsa_required = profile == "slh_dsa" || profile.ends_with("_slh_dsa");
+    let slh_dsa_pk_path = env_path_required("SLH_DSA_PUBLIC_KEY").ok();
+    let slh_dsa_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.slh_dsa.as_deref(),
+        slh_dsa_required,
+        "slh_dsa",
+        "SLH-DSA",
+        |msg, sig| {
+            slh_dsa_pk_path
+                .as_deref()
+                .map_or(Err(anyhow!("SLH_DSA_PUBLIC_KEY not set")), |p| {
+                    verify_slh_dsa(msg, sig, p)
+                })
+        },
+        &mut metrics.slh_dsa_verify_ms,
+        checks,
+        errors,
+    );
+
+    let fn_dsa_required = profile == "fn_dsa" || profile.ends_with("_fn_dsa");
+    let fn_dsa_pk_path = env_path_required("fn_dsa_PUBLIC_KEY").ok();
+    let fn_dsa_ok = verify_one_sig(
+        signing_bytes,
+        signed.signatures.fn_dsa.as_deref(),
+        fn_dsa_required,
+        "fn_dsa",
+        "fn_dsa-512",
+        |msg, sig| {
+            fn_dsa_pk_path
+                .as_deref()
+                .map_or(Err(anyhow!("fn_dsa_PUBLIC_KEY not set")), |p| {
+                    verify_fn_dsa(msg, sig, p)
+                })
+        },
+        &mut metrics.fn_dsa_verify_ms,
+        checks,
+        errors,
+    );
+    let signature_match_uploaded_content = 
+        (!rsa_required || rsa_ok) &&
+        (!eddsa_required || eddsa_ok) &&
+        (!ecdsa_required || ecdsa_ok) &&
+        (!hmac_required || hmac_ok) &&
+        (!ml_dsa_required || ml_dsa_ok) &&
+        (!slh_dsa_required || slh_dsa_ok) &&
+        (!fn_dsa_required || fn_dsa_ok) &&
+        (rsa_required || signed.signatures.rsa_pss.is_none()) &&
+        (eddsa_required || signed.signatures.eddsa.is_none()) &&
+        (ecdsa_required || signed.signatures.ecdsa_p256.is_none()) &&
+        (hmac_required || signed.signatures.hmac_sha256.is_none()) &&
+        (ml_dsa_required || signed.signatures.ml_dsa.is_none()) &&
+        (slh_dsa_required || signed.signatures.slh_dsa.is_none()) &&
+        (fn_dsa_required || signed.signatures.fn_dsa.is_none());
 
     add_check(
         checks,
@@ -1456,6 +1664,258 @@ fn verify_signatures_against_uploaded_content(
 
     metrics.total_ms = elapsed_ms(total_start);
     (signature_match_uploaded_content, metrics)
+}
+
+/// Generic helper: verify one optional signature field, record timing, add checks/errors.
+fn verify_one_sig(
+    signing_bytes: &[u8],
+    sig_b64: Option<&str>,
+    required: bool,
+    check_key: &str,
+    label: &str,
+    verify_fn: impl Fn(&[u8], &str) -> Result<bool>,
+    timing: &mut Option<f64>,
+    checks: &mut Vec<VerificationCheck>,
+    errors: &mut Vec<String>,
+) -> bool {
+    if let Some(sig) = sig_b64 {
+        let t = Instant::now();
+        let outcome = verify_fn(signing_bytes, sig);
+        *timing = Some(elapsed_ms(t));
+        match outcome {
+            Ok(true) => {
+                add_check(
+                    checks,
+                    &format!("signature.{}_valid", check_key),
+                    true,
+                    &format!("{} signature verified", label),
+                );
+                true
+            }
+            Ok(false) => {
+                errors.push(format!("{} signature verification failed", label));
+                add_check(
+                    checks,
+                    &format!("signature.{}_valid", check_key),
+                    false,
+                    &format!("{} signature failed verification", label),
+                );
+                false
+            }
+            Err(e) => {
+                errors.push(format!("{} verification error: {}", label, e));
+                add_check(
+                    checks,
+                    &format!("signature.{}_valid", check_key),
+                    false,
+                    &format!("{} signature verification errored", label),
+                );
+                false
+            }
+        }
+    } else {
+        let msg = if required {
+            format!("{} signature is required but missing", label)
+        } else {
+            format!("{} signature is not required for this profile", label)
+        };
+        add_check(
+            checks,
+            &format!("signature.{}_present", check_key),
+            !required,
+            &msg,
+        );
+        false
+    }
+}
+
+fn sign_eddsa(message: &[u8], key_path: &Path) -> Result<String> {
+    enforce_secret_file_permissions(key_path)?;
+    let key_bytes = std::fs::read(key_path)
+        .with_context(|| format!("Failed to read EdDSA key from {}", key_path.display()))?;
+    let bytes_32: [u8; 32] = key_bytes
+        .try_into()
+        .map_err(|_| anyhow!("Ed25519 secret key must be 32 bytes"))?;
+    let sk = Ed25519SigningKey::from_bytes(&bytes_32);
+    let sig: Ed25519Signature = sk.sign(message);
+    Ok(STANDARD_NO_PAD.encode(sig.to_bytes()))
+}
+
+fn verify_eddsa(message: &[u8], sig_b64: &str, key_path: &Path) -> Result<bool> {
+    let pk_bytes = std::fs::read(key_path).with_context(|| {
+        format!(
+            "Failed to read EdDSA public key from {}",
+            key_path.display()
+        )
+    })?;
+    let bytes_32: [u8; 32] = pk_bytes
+        .try_into()
+        .map_err(|_| anyhow!("Ed25519 public key must be 32 bytes"))?;
+    let pk = Ed25519VerifyingKey::from_bytes(&bytes_32)?;
+    let sig_bytes = STANDARD_NO_PAD.decode(sig_b64)?;
+    let sig = Ed25519Signature::from_slice(&sig_bytes)?;
+    Ok(pk.verify(message, &sig).is_ok())
+}
+
+fn sign_ecdsa_p256(message: &[u8], key_path: &Path) -> Result<String> {
+    enforce_secret_file_permissions(key_path)?;
+    let key_bytes = std::fs::read(key_path)
+        .with_context(|| format!("Failed to read ECDSA key from {}", key_path.display()))?;
+    let sk = P256SigningKey::from_bytes(key_bytes.as_slice().into())
+        .map_err(|e| anyhow!("ECDSA P-256 key parse error: {}", e))?;
+    let sig: P256Signature = sk.sign(message);
+    Ok(STANDARD_NO_PAD.encode(sig.to_der().as_bytes()))
+}
+
+fn verify_ecdsa_p256(message: &[u8], sig_b64: &str, key_path: &Path) -> Result<bool> {
+    let pk_bytes = std::fs::read(key_path).with_context(|| {
+        format!(
+            "Failed to read ECDSA public key from {}",
+            key_path.display()
+        )
+    })?;
+    let pk = P256VerifyingKey::from_sec1_bytes(&pk_bytes)
+        .map_err(|e| anyhow!("ECDSA P-256 public key parse error: {}", e))?;
+    let sig_bytes = STANDARD_NO_PAD.decode(sig_b64)?;
+    let sig = P256Signature::from_der(&sig_bytes)
+        .map_err(|e| anyhow!("ECDSA signature DER parse error: {}", e))?;
+    Ok(pk.verify(message, &sig).is_ok())
+}
+
+fn sign_hmac_sha256(message: &[u8], key_path: &Path) -> Result<String> {
+    enforce_secret_file_permissions(key_path)?;
+    type HmacSha256 = Hmac<sha2::Sha256>;
+    let key_bytes = std::fs::read(key_path)
+        .with_context(|| format!("Failed to read HMAC key from {}", key_path.display()))?;
+    let mut mac =
+        HmacSha256::new_from_slice(&key_bytes).map_err(|e| anyhow!("HMAC key error: {}", e))?;
+    mac.update(message);
+    Ok(STANDARD_NO_PAD.encode(mac.finalize().into_bytes()))
+}
+
+fn verify_hmac_sha256(message: &[u8], mac_b64: &str, key_path: &Path) -> Result<bool> {
+    type HmacSha256 = Hmac<sha2::Sha256>;
+    let key_bytes = std::fs::read(key_path)
+        .with_context(|| format!("Failed to read HMAC key from {}", key_path.display()))?;
+    let mut mac =
+        HmacSha256::new_from_slice(&key_bytes).map_err(|e| anyhow!("HMAC key error: {}", e))?;
+    mac.update(message);
+    let expected = STANDARD_NO_PAD.decode(mac_b64)?;
+    Ok(mac.verify_slice(&expected).is_ok())
+}
+
+fn sign_ml_dsa(message: &[u8], key_path: &Path) -> Result<String> {
+    use fips204::ml_dsa_65;
+    use fips204::traits::SerDes as _;
+    use fips204::traits::Signer as _;
+    enforce_secret_file_permissions(key_path)?;
+    let sk_bytes = std::fs::read(key_path)
+        .with_context(|| format!("Failed to read ML-DSA key from {}", key_path.display()))?;
+    let sk_arr: [u8; ml_dsa_65::SK_LEN] = sk_bytes
+        .try_into()
+        .map_err(|_| anyhow!("ML-DSA-65 secret key must be {} bytes", ml_dsa_65::SK_LEN))?;
+    let sk = ml_dsa_65::PrivateKey::try_from_bytes(sk_arr)
+        .map_err(|e| anyhow!("ML-DSA-65 key parse: {:?}", e))?;
+    let sig = sk
+        .try_sign(message, b"")
+        .map_err(|e| anyhow!("ML-DSA-65 sign error: {:?}", e))?;
+    Ok(STANDARD_NO_PAD.encode(&sig[..]))
+}
+
+fn verify_ml_dsa(message: &[u8], sig_b64: &str, key_path: &Path) -> Result<bool> {
+    use fips204::ml_dsa_65;
+    use fips204::traits::SerDes as _;
+    use fips204::traits::Verifier as _;
+    let pk_bytes = std::fs::read(key_path).with_context(|| {
+        format!(
+            "Failed to read ML-DSA public key from {}",
+            key_path.display()
+        )
+    })?;
+    let pk_arr: [u8; ml_dsa_65::PK_LEN] = pk_bytes
+        .try_into()
+        .map_err(|_| anyhow!("ML-DSA-65 public key must be {} bytes", ml_dsa_65::PK_LEN))?;
+    let pk = ml_dsa_65::PublicKey::try_from_bytes(pk_arr)
+        .map_err(|e| anyhow!("ML-DSA-65 pk parse: {:?}", e))?;
+    let sig_bytes = STANDARD_NO_PAD.decode(sig_b64)?;
+    let sig_arr: [u8; ml_dsa_65::SIG_LEN] = sig_bytes
+        .try_into()
+        .map_err(|_| anyhow!("ML-DSA-65 signature must be {} bytes", ml_dsa_65::SIG_LEN))?;
+    Ok(pk.verify(message, &sig_arr, b""))
+}
+
+fn sign_slh_dsa(message: &[u8], key_path: &Path) -> Result<String> {
+    use fips205::slh_dsa_shake_128s;
+    use fips205::traits::SerDes as _;
+    use fips205::traits::Signer as _;
+    enforce_secret_file_permissions(key_path)?;
+    let sk_bytes = std::fs::read(key_path)
+        .with_context(|| format!("Failed to read SLH-DSA key from {}", key_path.display()))?;
+    let sk_arr: [u8; slh_dsa_shake_128s::SK_LEN] = sk_bytes.try_into().map_err(|_| {
+        anyhow!(
+            "SLH-DSA secret key must be {} bytes",
+            slh_dsa_shake_128s::SK_LEN
+        )
+    })?;
+    let sk = slh_dsa_shake_128s::PrivateKey::try_from_bytes(&sk_arr)
+        .map_err(|e| anyhow!("SLH-DSA key parse: {:?}", e))?;
+    let sig = sk
+        .try_sign(message, b"", false)
+        .map_err(|e| anyhow!("SLH-DSA sign error: {:?}", e))?;
+    Ok(STANDARD_NO_PAD.encode(&sig[..]))
+}
+
+fn verify_slh_dsa(message: &[u8], sig_b64: &str, key_path: &Path) -> Result<bool> {
+    use fips205::slh_dsa_shake_128s;
+    use fips205::traits::SerDes as _;
+    use fips205::traits::Verifier as _;
+    let pk_bytes = std::fs::read(key_path).with_context(|| {
+        format!(
+            "Failed to read SLH-DSA public key from {}",
+            key_path.display()
+        )
+    })?;
+    let pk_arr: [u8; slh_dsa_shake_128s::PK_LEN] = pk_bytes.try_into().map_err(|_| {
+        anyhow!(
+            "SLH-DSA public key must be {} bytes",
+            slh_dsa_shake_128s::PK_LEN
+        )
+    })?;
+    let pk = slh_dsa_shake_128s::PublicKey::try_from_bytes(&pk_arr)
+        .map_err(|e| anyhow!("SLH-DSA pk parse: {:?}", e))?;
+    let sig_bytes = STANDARD_NO_PAD.decode(sig_b64)?;
+    let sig_arr: [u8; slh_dsa_shake_128s::SIG_LEN] = sig_bytes.try_into().map_err(|_| {
+        anyhow!(
+            "SLH-DSA signature must be {} bytes",
+            slh_dsa_shake_128s::SIG_LEN
+        )
+    })?;
+    Ok(pk.verify(message, &sig_arr, b""))
+}
+
+fn sign_fn_dsa(message: &[u8], key_path: &Path) -> Result<String> {
+    enforce_secret_file_permissions(key_path)?;
+    let sk_bytes = std::fs::read(key_path)
+        .with_context(|| format!("Failed to read fn_dsa key from {}", key_path.display()))?;
+    let sk = fn_dsaSecretKey::from_bytes(&sk_bytes)
+        .map_err(|e| anyhow!("fn_dsa-512 secret key parse: {}", e))?;
+    let sig = falcon512::detached_sign(message, &sk);
+    Ok(STANDARD_NO_PAD.encode(PqcDetachedSig::as_bytes(&sig)))
+}
+
+fn verify_fn_dsa(message: &[u8], sig_b64: &str, key_path: &Path) -> Result<bool> {
+    let pk_bytes = std::fs::read(key_path).with_context(|| {
+        format!(
+            "Failed to read fn_dsa public key from {}",
+            key_path.display()
+        )
+    })?;
+    let pk = fn_dsaPublicKey::from_bytes(&pk_bytes)
+        .map_err(|e| anyhow!("fn_dsa-512 public key parse: {}", e))?;
+    let sig_bytes = STANDARD_NO_PAD.decode(sig_b64)?;
+    let sig = fn_dsaDetachedSig::from_bytes(&sig_bytes)
+        .map_err(|e| anyhow!("fn_dsa-512 signature parse: {}", e))?;
+    Ok(falcon512::verify_detached_signature(&sig, message, &pk).is_ok())
 }
 
 fn allow_insecure_minio_http() -> bool {
@@ -1487,17 +1947,6 @@ fn verify_rsa_pss(message: &[u8], signature_b64: &str) -> Result<bool> {
     let sig_bytes = STANDARD_NO_PAD.decode(signature_b64)?;
     let sig = RsaPssSignature::try_from(sig_bytes.as_slice())?;
     Ok(verifying_key.verify(message, &sig).is_ok())
-}
-
-fn verify_dilithium(message: &[u8], signature_b64: &str) -> Result<bool> {
-    let pk_path = env_path_required("DILITHIUM_PUBLIC_KEY")?;
-    let pk_bytes = std::fs::read(pk_path)?;
-    let pk = DilithiumPublicKey::from_bytes(&pk_bytes)
-        .map_err(|_| anyhow!("Invalid Dilithium public key bytes"))?;
-    let sig_bytes = STANDARD_NO_PAD.decode(signature_b64)?;
-    let sig = dilithium3::DetachedSignature::from_bytes(&sig_bytes)
-        .map_err(|_| anyhow!("Invalid Dilithium signature bytes"))?;
-    Ok(dilithium3::verify_detached_signature(&sig, message, &pk).is_ok())
 }
 
 async fn verify_object_hash(
@@ -1549,11 +1998,26 @@ async fn verify_object_hash(
         },
     );
 
+    let alg = normalize_hash_algorithm_label(&signed.core.algorithm);
+
+    // Skip object hash verification for non-streamable algorithms
+    let skip_hash_verify = !is_stream_verifiable_manifest_hash_algorithm(&alg);
+    if skip_hash_verify {
+        add_check(
+            checks,
+            "storage.object_hash_match",
+            true,
+            "Object hash verification skipped for non-streamable algorithm",
+        );
+        return (true, elapsed_ms(total_start), object_size.max(0) as u64);
+    }
+
     let mut reader = resp.body.into_async_read();
     let mut buffer = vec![0u8; 8192];
     let mut sha256 = Sha256::new();
     let mut keccak = Keccak256::new();
-    let alg = signed.core.algorithm.to_ascii_uppercase();
+    let mut blake3 = blake3::Hasher::new();
+    let mut sha3_512 = sha3::Sha3_512::new();
 
     loop {
         let n = match reader.read(&mut buffer).await {
@@ -1573,8 +2037,12 @@ async fn verify_object_hash(
             break;
         }
         match alg.as_str() {
-            "SHA256" | "SHA-256" => sha256.update(&buffer[..n]),
-            "KECCAK" | "KECCAK256" | "KECCAK-256" => keccak.update(&buffer[..n]),
+            "SHA256" => sha256.update(&buffer[..n]),
+            "KECCAK" => keccak.update(&buffer[..n]),
+            "BLAKE3" => {
+                blake3.update(&buffer[..n]);
+            }
+            "SHA3-512" | "SHA3_512" => sha3_512.update(&buffer[..n]),
             other => {
                 errors.push(format!("Unsupported hash algorithm '{}'", other));
                 add_check(
@@ -1602,8 +2070,10 @@ async fn verify_object_hash(
     );
 
     let computed = match alg.as_str() {
-        "SHA256" | "SHA-256" => format!("{:x}", sha256.finalize()),
-        "KECCAK" | "KECCAK256" | "KECCAK-256" => format!("{:x}", keccak.finalize()),
+        "SHA256" => format!("{:x}", sha256.finalize()),
+        "KECCAK" => format!("{:x}", keccak.finalize()),
+        "BLAKE3" => blake3.finalize().to_hex().to_string(),
+        "SHA3-512" | "SHA3_512" => format!("{:x}", sha3_512.finalize()),
         _ => return (false, elapsed_ms(total_start), 0),
     };
     if computed != signed.core.hash {
@@ -1663,6 +2133,56 @@ async fn init_db_pool() -> Result<PgPool> {
         .unwrap_or_else(|_| "postgres://pqc:pqc@postgres:5432/pqc".to_string());
     let pool = PgPool::connect(&database_url).await?;
     Ok(pool)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        is_stream_verifiable_manifest_hash_algorithm, is_supported_manifest_hash_algorithm,
+        normalize_hash_algorithm_label,
+    };
+
+    #[test]
+    fn normalizes_new_hash_algorithm_labels() {
+        assert_eq!(normalize_hash_algorithm_label("blake3"), "BLAKE3");
+        assert_eq!(normalize_hash_algorithm_label("shake256"), "SHAKE256");
+        assert_eq!(normalize_hash_algorithm_label("sha3_512"), "SHA3-512");
+        assert_eq!(normalize_hash_algorithm_label("argon2"), "ARGON2ID");
+    }
+
+    #[test]
+    fn recognizes_supported_manifest_hash_algorithms() {
+        for algorithm in [
+            "SHA256",
+            "KECCAK256",
+            "BLAKE3",
+            "SHA3-512",
+            "SHAKE256",
+            "ARGON2ID",
+        ] {
+            assert!(
+                is_supported_manifest_hash_algorithm(algorithm),
+                "{algorithm} should be supported"
+            );
+        }
+    }
+
+    #[test]
+    fn distinguishes_stream_verifiable_algorithms() {
+        for algorithm in ["SHA256", "KECCAK256", "BLAKE3", "SHA3-512"] {
+            assert!(
+                is_stream_verifiable_manifest_hash_algorithm(algorithm),
+                "{algorithm} should be stream-verifiable"
+            );
+        }
+
+        for algorithm in ["SHAKE256", "ARGON2ID"] {
+            assert!(
+                !is_stream_verifiable_manifest_hash_algorithm(algorithm),
+                "{algorithm} should not be stream-verifiable"
+            );
+        }
+    }
 }
 
 async fn ensure_schema(pool: &PgPool) -> Result<()> {

@@ -14,6 +14,7 @@ BUCKET_SIZES: Dict[str, int] = {
     "10MB": 10 * 1024 * 1024,
     "50MB": 50 * 1024 * 1024,
 }
+DATASET_LAYOUT_VERSION = 2
 
 DEFAULT_FILE_TYPES = ["bin", "txt", "json", "csv", "md"]
 ASCII_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -55,19 +56,9 @@ def bucket_bounds(bucket: str) -> Tuple[int, int]:
 
 
 def choose_size(seed: str, bucket: str, index: int, total: int) -> int:
-    lower, upper = bucket_bounds(bucket)
-    if lower >= upper:
-        return upper
-
-    width = upper - lower
-    if total == 1:
-        base_offset = width // 2
-    else:
-        base_offset = round(width * ((index - 1) / (total - 1)))
-    jitter_window = max(1, width // max(total * 4, 1))
-    jitter = deterministic_int(seed, bucket, index, "size", modulo=(jitter_window * 2) + 1)
-    jitter -= jitter_window
-    return max(lower, min(upper, lower + base_offset + jitter))
+    # Use exact target sizes per bucket so end-to-end comparisons are not dominated
+    # by large within-bucket size variation.
+    return BUCKET_SIZES[bucket]
 
 
 def deterministic_text(seed: str, bucket: str, index: int, length: int, label: str) -> str:
@@ -186,8 +177,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-dir",
-        default="benchmark-dataset",
-        help="Output directory (default: benchmark-dataset)",
+        default="dataset",
+        help="Output directory (default: dataset)",
     )
     parser.add_argument(
         "--files-per-bucket",
@@ -197,7 +188,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--seed",
-        default="pqc-hons-benchmark-dataset-v2",
+        default="pqc-hons-dataset-v2",
         help="Deterministic seed string",
     )
     parser.add_argument(
@@ -257,10 +248,12 @@ def main() -> None:
             writer.writerow(row)
 
     metadata = {
+        "layout_version": DATASET_LAYOUT_VERSION,
         "seed": args.seed,
         "files_per_bucket": args.files_per_bucket,
         "file_types": file_types,
         "bucket_upper_bounds": BUCKET_SIZES,
+        "size_selection_mode": "exact_bucket_size",
     }
     (output_root / "dataset-metadata.json").write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"

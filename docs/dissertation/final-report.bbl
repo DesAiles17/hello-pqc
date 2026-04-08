@@ -1,0 +1,259 @@
+\begin{thebibliography}{49}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[{Amazon Web Services}(2023)]{Ama23}
+{Amazon Web Services}.
+\newblock Validating {CloudTrail} log file integrity, 2023.
+\newblock URL \url{https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-intro.html}.
+
+\bibitem[{Amazon Web Services}(2024{\natexlab{a}})]{Ama24a}
+{Amazon Web Services}.
+\newblock Using server-side encryption with {AWS KMS} keys ({SSE-KMS}), 2024{\natexlab{a}}.
+\newblock URL \url{https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html}.
+
+\bibitem[{Amazon Web Services}(2024{\natexlab{b}})]{Ama24b}
+{Amazon Web Services}.
+\newblock Checking object integrity in {Amazon S3}, 2024{\natexlab{b}}.
+\newblock URL \url{https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html}.
+
+\bibitem[{Amazon Web Services}(2024{\natexlab{c}})]{Ama24c}
+{Amazon Web Services}.
+\newblock Checking object integrity for data at rest in {Amazon S3}, 2024{\natexlab{c}}.
+\newblock URL \url{https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity-at-rest.html}.
+
+\bibitem[{Amazon Web Services}(2024{\natexlab{d}})]{Ama24d}
+{Amazon Web Services}.
+\newblock Client-side encryption, 2024{\natexlab{d}}.
+\newblock URL \url{https://docs.aws.amazon.com/kms/latest/cryptographic-details/client-side-encryption.html}.
+
+\bibitem[Barker and Roginsky(2019)]{nist-sp800-131a-2019}
+Elaine Barker and Allen Roginsky.
+\newblock Transitioning the use of cryptographic algorithms and key lengths, March 2019.
+
+\bibitem[Bormann and Hoffman(2020)]{rfc8949-cbor}
+C.~Bormann and P.~Hoffman.
+\newblock Concise binary object representation ({CBOR}).
+\newblock RFC 8949, December 2020.
+
+\bibitem[Castryck and Decru(2022)]{sike-broken-2022}
+Wouter Castryck and Thomas Decru.
+\newblock An efficient key recovery attack on {SIDH} (preliminary version), July 2022.
+\newblock URL \url{https://eprint.iacr.org/2022/975}.
+
+\bibitem[Cloud(2025)]{google-cloud-kms-pqc-2025}
+Google Cloud.
+\newblock Google cloud {KMS} now supports quantum-safe digital signatures, February 2025.
+\newblock URL \url{https://cloud.google.com/blog/products/identity-security/google-cloud-kms-now-supports-quantum-safe-digital-signatures}.
+
+\bibitem[Fouque et~al.(2020)Fouque, Hoffstein, Kirchner, Lyubashevsky, Pornin, Prest, Pulles, van Vredendaal, Whyte, and Zhang]{fouque2020fn_dsa}
+Pierre-Alain Fouque, Jeffrey Hoffstein, Paul Kirchner, Vadim Lyubashevsky, Thomas Pornin, Thomas Prest, Thomas Pulles, Christine van Vredendaal, William Whyte, and Zhenfei Zhang.
+\newblock Fn-dsa: Fast-{Fourier} lattice-based compact signatures over {NTRU}.
+\newblock {NIST} Post-Quantum Cryptography Round~3 Submission, 2020.
+\newblock URL \url{https://fn_dsa-sign.info}.
+
+\bibitem[García-Ruiz et~al.(2023)García-Ruiz, Teufel, Stanitsas, et~al.]{Ven+23}
+Yanina García-Ruiz, Bernhard Teufel, Pantelis Stanitsas, et~al.
+\newblock aws-s3-integrity-check: an open-source bash tool to verify the integrity of a dataset stored on {Amazon S3}.
+\newblock \emph{GigaByte}, 2023.
+\newblock \doi{10.46471/gigabyte.87}.
+
+\bibitem[Gidney and Ekerå(2021)]{gidney-ekera-2021}
+Craig Gidney and Martin Ekerå.
+\newblock How to factor 2048 bit rsa integers in 8 hours using 20 million noisy qubits.
+\newblock \emph{Quantum}, 5:\penalty0 433, 2021.
+\newblock \doi{10.22331/q-2021-04-15-433}.
+
+\bibitem[{Google Cloud}(2024)]{Goo24}
+{Google Cloud}.
+\newblock Envelope encryption, 2024.
+\newblock URL \url{https://cloud.google.com/kms/docs/envelope-encryption}.
+
+\bibitem[Group(2025)]{thales-mldsa-2025}
+Thales Group.
+\newblock {ML-DSA} programming guide for luna {HSM}, November 2025.
+\newblock URL \url{https://www.thalesdocs.com/gphsm/luna/7/docs/network/Content/sdk/extensions/pqc/ML-DSA_programming_guide.htm}.
+
+\bibitem[Grover(1996)]{grover1996}
+Lov~K. Grover.
+\newblock A fast quantum mechanical algorithm for database search.
+\newblock In \emph{Proceedings of the 28th Annual ACM Symposium on Theory of Computing}, pages 212--219, 1996.
+\newblock \doi{10.1145/237814.237866}.
+
+\bibitem[HashiCorp(2025)]{hashicorp-hndl-2025}
+HashiCorp.
+\newblock Harvest now, decrypt later: Why today's encrypted data isn't safe forever, 2025.
+\newblock URL \url{https://www.hashicorp.com/blog/harvest-now-decrypt-later}.
+
+\bibitem[Hoffstein et~al.(1998)Hoffstein, Pipher, and Silverman]{hoffstein1998}
+Jeffrey Hoffstein, Jill Pipher, and Joseph~H. Silverman.
+\newblock {NTRU}: A ring-based public key cryptosystem.
+\newblock In \emph{Algorithmic Number Theory -- {ANTS-III} 1998}, volume 1423 of \emph{Lecture Notes in Computer Science}, pages 267--288, Berlin, 1998. Springer.
+\newblock \doi{10.1007/BFb0054868}.
+
+\bibitem[Huelsing et~al.(2018)Huelsing, Butin, Gazdag, Rijneveld, and Mohaisen]{rfc8391-xmss}
+A.~Huelsing, D.~Butin, S.~Gazdag, J.~Rijneveld, and A.~Mohaisen.
+\newblock {XMSS}: extended merkle signature scheme.
+\newblock RFC 8391, May 2018.
+
+\bibitem[Kent and Souppaya(2006)]{KS06}
+Karen Kent and Murugiah Souppaya.
+\newblock Guide to computer security log management.
+\newblock {NIST} Special Publication 800-92, September 2006.
+\newblock URL \url{https://csrc.nist.gov/pubs/sp/800/92/final}.
+
+\bibitem[Lamport(1979)]{lamport1979}
+Leslie Lamport.
+\newblock Constructing digital signatures from a one-way function.
+\newblock Technical Report SRI-CSL-98, SRI International Computer Science Laboratory, 1979.
+
+\bibitem[Lyubashevsky(2012)]{lyubashevsky2012}
+Vadim Lyubashevsky.
+\newblock Lattice signatures without trapdoors.
+\newblock In \emph{Advances in Cryptology -- {EUROCRYPT} 2012}, volume 7237 of \emph{Lecture Notes in Computer Science}, pages 738--755, Berlin, 2012. Springer.
+\newblock \doi{10.1007/978-3-642-29011-4_43}.
+
+\bibitem[Massimo et~al.(2025)Massimo, Kampanakis, Turner, and Westerbaan]{rfc9881-mldsa-x509}
+J.~Massimo, P.~Kampanakis, S.~Turner, and B.~Westerbaan.
+\newblock Internet {X.509} public key infrastructure: Algorithm identifiers for {ML-DSA}.
+\newblock RFC 9881, October 2025.
+
+\bibitem[Massimo et~al.(2024)]{ietf-lamps-kyber-certs}
+J.~Massimo et~al.
+\newblock Internet {X.509} public key infrastructure: Algorithm identifiers for {Kyber}, 2024.
+\newblock URL \url{https://datatracker.ietf.org/doc/draft-ietf-lamps-kyber-certificates/}.
+\newblock IETF Internet-Draft.
+
+\bibitem[McGrew et~al.(2019)McGrew, Curcio, and Fluhrer]{rfc8554-lms}
+D.~McGrew, M.~Curcio, and S.~Fluhrer.
+\newblock Leighton-micali hash-based signatures.
+\newblock RFC 8554, April 2019.
+
+\bibitem[Merkle(1989)]{merkle1989}
+Ralph~C. Merkle.
+\newblock A certified digital signature.
+\newblock In \emph{Advances in Cryptology -- {CRYPTO} 1989}, volume 435 of \emph{Lecture Notes in Computer Science}, pages 218--238, Berlin, 1989. Springer.
+\newblock \doi{10.1007/0-387-34805-0_21}.
+
+\bibitem[{MinIO, Inc.}(2024)]{minio-docs}
+{MinIO, Inc.}
+\newblock {MinIO} object storage for {Linux}, 2024.
+\newblock URL \url{https://min.io/docs/minio/linux/index.html}.
+
+\bibitem[Mosca(2018)]{mosca2018}
+Michele Mosca.
+\newblock Cybersecurity in an era with quantum computers: Will we be ready?
+\newblock \emph{IEEE Security \& Privacy}, 16\penalty0 (5):\penalty0 38--41, 2018.
+\newblock \doi{10.1109/MSP.2018.3761723}.
+
+\bibitem[{National Institute of Standards and Technology}(2015)]{nist-fips-202-2015}
+{National Institute of Standards and Technology}.
+\newblock {SHA-3} standard: Permutation-based hash and extendable-output functions.
+\newblock FIPS PUB 202, August 2015.
+
+\bibitem[O'Connor et~al.(2020)O'Connor, Aumasson, Neves, and Wilcox-O'Hearn]{blake3-2020}
+Jack O'Connor, Jean-Philippe Aumasson, Samuel Neves, and Zooko Wilcox-O'Hearn.
+\newblock {BLAKE3}: One function, fast everywhere.
+\newblock In \emph{IACR Cryptology ePrint Archive}, 2020.
+\newblock URL \url{https://eprint.iacr.org/2020/1235}.
+\newblock Report 2020/1235.
+
+\bibitem[of~Excellence(2023)]{nist-nccoe-pqc-migration-2023}
+National Cybersecurity~Center of~Excellence.
+\newblock Migration to post-quantum cryptography, 2023.
+\newblock URL \url{https://www.nccoe.nist.gov/crypto-agility-considerations-migrating-post-quantum-cryptographic-algorithms}.
+
+\bibitem[of~Standards and Technology(2016)]{nist-pqc-call-2016}
+National~Institute of~Standards and Technology.
+\newblock Announcing request for nominations for public-key post-quantum cryptographic algorithms, December 2016.
+\newblock URL \url{https://csrc.nist.gov/news/2016/public-key-post-quantum-cryptographic-algorithms}.
+\newblock Federal Register Notice.
+
+\bibitem[of~Standards and Technology(2019)]{nist-round2-2019}
+National~Institute of~Standards and Technology.
+\newblock Post-quantum cryptography: Round 2 submissions, January 2019.
+\newblock URL \url{https://csrc.nist.gov/projects/post-quantum-cryptography/round-2-submissions}.
+
+\bibitem[of~Standards and Technology(2020{\natexlab{a}})]{nist-round3-2020}
+National~Institute of~Standards and Technology.
+\newblock Post-quantum cryptography: Third round candidates, July 2020{\natexlab{a}}.
+\newblock URL \url{https://csrc.nist.gov/projects/post-quantum-cryptography/round-3-submissions}.
+
+\bibitem[of~Standards and Technology(2020{\natexlab{b}})]{nist-sp800-208-2020}
+National~Institute of~Standards and Technology.
+\newblock Recommendation for stateful hash-based signature schemes, October 2020{\natexlab{b}}.
+
+\bibitem[of~Standards and Technology(2023)]{nist-fips-186-5-2023}
+National~Institute of~Standards and Technology.
+\newblock Digital signature standard (dss), February 2023.
+
+\bibitem[of~Standards and Technology(2024{\natexlab{a}})]{nist-fips-203-2024}
+National~Institute of~Standards and Technology.
+\newblock Module-lattice-based key encapsulation mechanism standard, August 2024{\natexlab{a}}.
+
+\bibitem[of~Standards and Technology(2024{\natexlab{b}})]{nist-fips-204-2024}
+National~Institute of~Standards and Technology.
+\newblock Module-lattice-based digital signature standard, August 2024{\natexlab{b}}.
+
+\bibitem[of~Standards and Technology(2024{\natexlab{c}})]{nist-fips-205-2024}
+National~Institute of~Standards and Technology.
+\newblock Stateless hash-based digital signature standard, August 2024{\natexlab{c}}.
+
+\bibitem[of~Standards and Technology(2024{\natexlab{d}})]{nist-fips206-2024}
+National~Institute of~Standards and Technology.
+\newblock {FN-DSA}: {FN-DSA}-based digital signature algorithm, August 2024{\natexlab{d}}.
+
+\bibitem[of~Standards and Technology(2024{\natexlab{e}})]{nist-ir8547-2024}
+National~Institute of~Standards and Technology.
+\newblock Transition to post-quantum cryptography standards, November 2024{\natexlab{e}}.
+
+\bibitem[of~Standards and Technology(2024{\natexlab{f}})]{nist-pqc-timeline}
+National~Institute of~Standards and Technology.
+\newblock Post-quantum cryptography: Workshops and timeline, 2024{\natexlab{f}}.
+\newblock URL \url{https://csrc.nist.gov/projects/post-quantum-cryptography/workshops-and-timeline}.
+
+\bibitem[of~Standards and Technology(2025{\natexlab{a}})]{nist-hqc-selection-2025}
+National~Institute of~Standards and Technology.
+\newblock {NIST} selects {HQC} as fifth algorithm for post-quantum encryption, March 2025{\natexlab{a}}.
+\newblock URL \url{https://www.nist.gov/news-events/news/2025/03/nist-selects-hqc-fifth-algorithm-post-quantum-encryption}.
+
+\bibitem[of~Standards and Technology(2025{\natexlab{b}})]{nist-ir8545-2025}
+National~Institute of~Standards and Technology.
+\newblock Status report on the fourth round of the nist post-quantum cryptography standardization process, March 2025{\natexlab{b}}.
+
+\bibitem[Preskill(2018)]{preskill2018}
+John Preskill.
+\newblock Quantum computing in the {NISQ} era and beyond.
+\newblock \emph{Quantum}, 2:\penalty0 79, 2018.
+\newblock \doi{10.22331/q-2018-08-06-79}.
+
+\bibitem[Regev(2009)]{regev2009}
+Oded Regev.
+\newblock On lattices, learning with errors, random linear codes, and cryptography.
+\newblock \emph{Journal of the ACM}, 56\penalty0 (6):\penalty0 34:1--34:40, 2009.
+\newblock \doi{10.1145/1568318.1568324}.
+
+\bibitem[Sectigo(2025)]{sectigo-hndl-2025}
+Sectigo.
+\newblock Harvest now, decrypt later: Quantum threat, 2025.
+\newblock URL \url{https://www.sectigo.com/resource-library/harvest-now-decrypt-later-quantum-threat}.
+
+\bibitem[Services(2025)]{aws-mlkem-deployment-2025}
+Amazon~Web Services.
+\newblock {ML-KEM} post-quantum {TLS} now supported in {AWS KMS}, {ACM}, and secrets manager, April 2025.
+\newblock URL \url{https://aws.amazon.com/blogs/security/ml-kem-post-quantum-tls-now-supported-in-aws-kms-acm-and-secrets-manager/}.
+
+\bibitem[Shor(1997)]{shor1997}
+Peter~W. Shor.
+\newblock Polynomial-time algorithms for prime factorization and discrete logarithms on a quantum computer.
+\newblock \emph{SIAM Journal on Computing}, 26\penalty0 (5):\penalty0 1484--1509, 1997.
+
+\bibitem[{Yandex Cloud}(2024)]{Yan24}
+{Yandex Cloud}.
+\newblock Envelope encryption, 2024.
+\newblock URL \url{https://yandex.cloud/en/docs/kms/concepts/envelope}.
+
+\end{thebibliography}

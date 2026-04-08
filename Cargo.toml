@@ -32,8 +32,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rsa = { version = "0.9", features = ["sha2"] }
 rand = "0.8"
-base64 = "0.21"
-pqcrypto-dilithium = "0.5"
+base64 = { version = "0.21", features = ["alloc"] }
 pqcrypto-traits = "0.3"
 aws-config = { version = "1.6.1", default-features = false, features = [
     "rt-tokio",
@@ -53,6 +52,15 @@ sqlx = { version = "0.8.3", default-features = false, features = [
 ciborium = "0.2"
 sha3 = "0.10"
 libc = "0.2"
+ed25519-dalek = "2.2.0"
+p256 = "0.13.2"
+hmac = "0.12"
+pqcrypto-falcon = "0.4.1"
+fips204 = "0.4.6"
+fips205 = "0.4.1"
+blake3 = "1.8.4"
+argon2 = "0.5.3"
+hex = "0.4.3"
 
 [[bin]]
 name = "api-gateway"
@@ -67,8 +75,8 @@ name = "manifest-builder-service"
 path = "src/bin/manifest_builder_service.rs"
 
 [[bin]]
-name = "gen-dilithium"
-path = "src/bin/gen_dilithium.rs"
+name = "gen-ml_dsa"
+path = "src/bin/gen_keys.rs"
 
 [[bin]]
 name = "benchmark-cli"

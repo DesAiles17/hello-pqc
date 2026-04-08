@@ -62,7 +62,7 @@ The stack now supports true local TLS mode without disabling secure checks.
 1. Generate local CA + service certificates:
 
 ```bash
-./scripts/generate_tls_certs.sh
+./scripts/dev/generate_tls_certs.sh
 ```
 
 2. Keep secure flags disabled:

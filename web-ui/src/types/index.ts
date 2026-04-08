@@ -28,7 +28,12 @@ export interface SourceFileMetadata {
 
 export interface Signatures {
     rsa_pss?: string;
-    dilithium?: string;
+    eddsa?: string;
+    ecdsa_p256?: string;
+    ml_dsa?: string;
+    hmac_sha256?: string;
+    slh_dsa?: string;
+    fn_dsa?: string;
 }
 
 export interface SignedManifest {
@@ -47,8 +52,8 @@ export interface UploadResponse {
 
 export interface ProcessRequest {
     file_path: string;
-    signature_profile: 'classical' | 'pqc' | 'hybrid';
-    hash_algorithm: 'SHA256' | 'Keccak256';
+    signature_profile: string;
+    hash_algorithm: 'SHA256' | 'Keccak256' | 'BLAKE3';
     domain_sep?: string;  // Optional - server will use default if not provided
     schema_version?: string;  // Optional - server will use default if not provided
     bucket: string;

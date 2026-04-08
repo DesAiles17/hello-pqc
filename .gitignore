@@ -1,6 +1,8 @@
 /target
 /output/
 /benchmark-dataset/
+/benchmark-dataset-smoke/
+/dataset/
 /scripts/benchmark-dataset/
 /web-ui/dist/
 /web-ui/node_modules/
@@ -9,6 +11,8 @@
 .DS_Store
 .vscode/
 .idea/
+.claude/
+.codex
 *.swp
 *.swo
 *~
@@ -42,3 +46,8 @@ minio-data/
 
 # Logs
 *.log
+CLAUDE.md
+.mcp.json
+AGENTS.md
+.code-review-graph
+deploy

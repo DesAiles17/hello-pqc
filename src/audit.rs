@@ -108,34 +108,47 @@ impl AuditEvent {
 }
 
 /// Mask sensitive file paths for logging
-/// Example: "/home/user/secret/file.txt" -> "/home/***/secret/***"
+/// Example: "/home/user/secret/file.txt" -> "/home/user/***/file.txt"
 pub fn mask_sensitive_path(path: &str) -> String {
     let path_obj = Path::new(path);
+    let is_absolute = path_obj.is_absolute();
+    let components: Vec<String> = path_obj
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::RootDir | std::path::Component::CurDir => None,
+            std::path::Component::Normal(name) => Some(name.to_string_lossy().to_string()),
+            std::path::Component::ParentDir => Some("..".to_string()),
+            std::path::Component::Prefix(prefix) => {
+                Some(prefix.as_os_str().to_string_lossy().to_string())
+            }
+        })
+        .collect();
 
-    let components: Vec<_> = path_obj.components().collect();
     if components.len() <= 2 {
         return path.to_string();
     }
 
-    // Mask middle components but keep first and last for context
-    let mut masked = String::new();
-    for (i, component) in components.iter().enumerate() {
-        if i > 0 {
-            masked.push('/');
-        }
+    // Keep the leading one or two path segments plus the basename, mask the rest.
+    let keep_prefix = if components.len() > 3 { 2 } else { 1 };
+    let last_index = components.len() - 1;
+    let masked_components: Vec<String> = components
+        .iter()
+        .enumerate()
+        .map(|(index, component)| {
+            if index < keep_prefix || index == last_index {
+                component.clone()
+            } else {
+                "***".to_string()
+            }
+        })
+        .collect();
 
-        if i == 0 || i == components.len() - 1 {
-            // Keep first and last component
-            masked.push_str(&component.as_os_str().to_string_lossy());
-        } else if i == 1 && components.len() > 3 {
-            // Keep second component if path is long enough
-            masked.push_str(&component.as_os_str().to_string_lossy());
-        } else {
-            masked.push_str("***");
-        }
+    let masked = masked_components.join("/");
+    if is_absolute {
+        format!("/{}", masked)
+    } else {
+        masked
     }
-
-    masked
 }
 
 /// Mask API keys in strings
@@ -166,9 +179,13 @@ mod tests {
     fn test_mask_sensitive_path() {
         assert_eq!(
             mask_sensitive_path("/home/user/documents/secret/file.txt"),
-            "/home/user/***/***/ file.txt"
+            "/home/user/***/***/file.txt"
         );
         assert_eq!(mask_sensitive_path("/tmp/file.txt"), "/tmp/file.txt");
+        assert_eq!(
+            mask_sensitive_path("uploads/private/report.pdf"),
+            "uploads/***/report.pdf"
+        );
     }
 
     #[test]

@@ -8,13 +8,15 @@ use axum::{
 };
 use chrono::Utc;
 use pqc_hons::{
+    audit::{AuditEvent, AuditEventType, AuditResult},
+    normalize_service_signature_profile as normalize_signature_profile,
     security::{
         auth_middleware, check_role, AuthConfig, AuthIdentity, RateLimitConfig, UserRole,
         ValidationConfig,
     },
     ErrorResponse, FetchManifestResponse, HashRequest, HashResponse, ManifestBuildResponse,
     ManifestRequest, OperationMetricsResponse, ProcessOperationMetrics, SignedManifest,
-    VerifyOperationMetrics, VerifyRequest, VerifyResponse,
+    UploadCleanupRequest, VerifyOperationMetrics, VerifyRequest, VerifyResponse,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json as SqlxJson;
@@ -101,14 +103,31 @@ fn elapsed_ms(start: Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1000.0
 }
 
-fn normalize_signature_profile(input: &str) -> String {
-    let trimmed = input.trim().to_ascii_lowercase();
-    match trimmed.as_str() {
-        "classic" | "classical" | "rsa" | "classical_only" => "classical_only".to_string(),
-        "pqc" | "dilithium" | "pqc_only" => "pqc_only".to_string(),
-        "hybrid" => "hybrid".to_string(),
-        _ => input.to_string(),
+fn log_gateway_audit_event(
+    event_type: AuditEventType,
+    action: &str,
+    result: AuditResult,
+    auth_identity: &AuthIdentity,
+    request_id: Option<&str>,
+    resource: Option<&str>,
+    details: Option<String>,
+) {
+    let mut event = AuditEvent::new(event_type, action.to_string(), result)
+        .with_user(auth_identity.key_fingerprint.clone());
+
+    if let Some(request_id) = request_id {
+        event = event.with_request_id(request_id.to_string());
     }
+
+    if let Some(resource) = resource {
+        event = event.with_resource(resource.to_string());
+    }
+
+    if let Some(details) = details {
+        event = event.with_details(details);
+    }
+
+    event.log();
 }
 
 fn check_rate_limit(
@@ -306,7 +325,14 @@ fn max_upload_storage_per_key() -> u64 {
     std::env::var("MAX_UPLOAD_STORAGE_PER_KEY")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .map(|value| value.max(10 * 1024 * 1024))
+        // `0` is treated as unlimited for controlled benchmark runs.
+        .map(|value| {
+            if value == 0 {
+                u64::MAX
+            } else {
+                value.max(10 * 1024 * 1024)
+            }
+        })
         .unwrap_or(512 * 1024 * 1024)
 }
 
@@ -543,6 +569,10 @@ async fn main() -> Result<()> {
         .route(
             "/upload",
             post(upload_file).layer(axum::extract::DefaultBodyLimit::max(max_upload_size)),
+        )
+        .route(
+            "/upload/cleanup",
+            post(cleanup_upload).layer(RequestBodyLimitLayer::new(max_json_body_size)),
         )
         .route(
             "/verify",
@@ -838,6 +868,19 @@ async fn upload_file(
 
         info!("File uploaded: {} ({} bytes)", file_path, total_size);
 
+        log_gateway_audit_event(
+            AuditEventType::FileAccess,
+            "upload_file",
+            AuditResult::Success,
+            &auth_identity,
+            None,
+            Some(&file_path),
+            Some(format!(
+                "Uploaded {} bytes with content_type={}",
+                total_size, content_type
+            )),
+        );
+
         return Ok(Json(UploadResponse {
             file_path,
             original_filename: file_name,
@@ -856,11 +899,67 @@ async fn upload_file(
     ))
 }
 
+async fn cleanup_upload(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(user_role): axum::Extension<UserRole>,
+    axum::Extension(auth_identity): axum::Extension<AuthIdentity>,
+    Json(payload): Json<UploadCleanupRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    if !check_role(&user_role, &UserRole::Operator) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "Insufficient permissions for upload cleanup".into(),
+                request_id: None,
+            }),
+        ));
+    }
+
+    if payload.file_path.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "File path cannot be empty".into(),
+                request_id: None,
+            }),
+        ));
+    }
+
+    let owned_path = ensure_user_owned_upload_path(
+        &payload.file_path,
+        &state.upload_dir,
+        &auth_identity.key_fingerprint,
+    )
+    .map_err(|e| {
+        error!("Upload cleanup path validation failed: {}", e);
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "File path is not owned by the authenticated key identity".into(),
+                request_id: None,
+            }),
+        )
+    })?;
+
+    match tokio::fs::remove_file(&owned_path).await {
+        Ok(_) => Ok(StatusCode::NO_CONTENT),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(StatusCode::NO_CONTENT),
+        Err(error) => {
+            error!(
+                "Failed to delete uploaded file '{}': {}",
+                owned_path.display(),
+                error
+            );
+            Err(internal_server_error("Failed to delete upload file", None))
+        }
+    }
+}
+
 async fn config_defaults(
     State(_state): State<Arc<AppState>>,
 ) -> Result<Json<ConfigDefaultsResponse>, (StatusCode, Json<ErrorResponse>)> {
     let signature_profile =
-        std::env::var("SIGNATURE_PROFILE").unwrap_or_else(|_| "hybrid".to_string());
+        std::env::var("SIGNATURE_PROFILE").unwrap_or_else(|_| "ml_dsa".to_string());
     let domain_sep =
         std::env::var("MANIFEST_DOMAIN_SEP").unwrap_or_else(|_| "pqc-hons.manifest.v1".to_string());
     let schema_version = std::env::var("MANIFEST_SCHEMA_VERSION")
@@ -1116,7 +1215,10 @@ async fn verify_request(
 
     if !status.is_success() {
         let request_id = payload.request_id.clone();
-        error!("Manifest service error {}: {}", status, body);
+        error!(
+            "Verification failed for request Id {}. Manifest service error {}: {}",
+            request_id, status, body
+        );
         return Err(upstream_service_error("Manifest", status, Some(request_id)));
     }
 
@@ -1177,6 +1279,33 @@ async fn verify_request(
                 Some(request_id.clone()),
             )
         })?;
+
+    log_gateway_audit_event(
+        if parsed.overall_ok {
+            AuditEventType::SignatureVerified
+        } else {
+            AuditEventType::SignatureVerificationFailed
+        },
+        "verify_manifest",
+        if parsed.overall_ok {
+            AuditResult::Success
+        } else {
+            AuditResult::Failure
+        },
+        &auth_identity,
+        Some(&request_id),
+        None,
+        Some(format!(
+            "signature_ok={}, object_ok={}, file_hash_match={}",
+            parsed.signature_ok, parsed.object_ok, parsed.file_hash_match
+        )),
+    );
+
+    if parsed.overall_ok {
+        info!("Verification successful for request Id {}", request_id);
+    } else {
+        error!("Verification failed for request Id {}", request_id);
+    }
 
     Ok(Json(parsed))
 }
@@ -1311,37 +1440,6 @@ async fn process_file(
         hash_algorithm: payload.hash_algorithm.clone(),
     };
 
-    if let Some(hash_alg) = payload.hash_algorithm.as_deref() {
-        let normalized = hash_alg.to_ascii_uppercase();
-        if normalized != "SHA256"
-            && normalized != "SHA-256"
-            && normalized != "KECCAK"
-            && normalized != "KECCAK256"
-            && normalized != "KECCAK-256"
-        {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!("Unsupported hash algorithm '{}'", hash_alg),
-                    request_id: Some(request_id.clone()),
-                }),
-            ));
-        }
-    }
-
-    if let Some(profile) = payload.signature_profile.as_deref() {
-        let normalized = normalize_signature_profile(profile);
-        if normalized != "classical_only" && normalized != "pqc_only" && normalized != "hybrid" {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!("Unsupported signature profile '{}'", profile),
-                    request_id: Some(request_id.clone()),
-                }),
-            ));
-        }
-    }
-
     let hash_roundtrip_start = Instant::now();
     let hash_resp = state
         .client
@@ -1430,8 +1528,8 @@ async fn process_file(
 
     if !manifest_status.is_success() {
         error!(
-            "Manifest service error {}: {}",
-            manifest_status, manifest_body
+            "Signature storage failed for request ID {}. Manifest service error {}: {}",
+            request_id, manifest_status, manifest_body
         );
         return Err(upstream_service_error(
             "Manifest",
@@ -1449,7 +1547,7 @@ async fn process_file(
             )
         })?;
 
-    info!("Manifest built successfully");
+    info!("Signature stored with request ID {}", request_id);
     let manifest = manifest_response.manifest;
 
     let operation_record = OperationMetricsResponse {
@@ -1477,6 +1575,19 @@ async fn process_file(
                 Some(request_id.clone()),
             )
         })?;
+
+    log_gateway_audit_event(
+        AuditEventType::SignatureCreated,
+        "build_manifest",
+        AuditResult::Success,
+        &auth_identity,
+        Some(&request_id),
+        Some(&manifest.envelope.original_path),
+        Some(format!(
+            "profile={}, hash_algorithm={}",
+            manifest.core.signature_profile, manifest.core.algorithm
+        )),
+    );
 
     Ok(Json(ProcessFileResponse { manifest }))
 }

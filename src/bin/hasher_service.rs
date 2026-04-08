@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use argon2::{Algorithm as Argon2Algorithm, Argon2, Params, Version as Argon2Version};
 use aws_config::Region;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::Builder as S3ConfigBuilder;
@@ -21,7 +22,7 @@ use pqc_hons::{
     ErrorResponse, HashRequest, HashResponse, HashTimingMetrics,
 };
 use sha2::{Digest, Sha256};
-use sha3::Keccak256;
+use sha3::{Keccak256, Sha3_512};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
@@ -255,8 +256,24 @@ async fn compute_and_store(
         .await
         .with_context(|| format!("Failed to create hash spool file: {}", spool_path.display()))?;
 
+    // Argon2id and SHAKE256 require the full file in memory; enforce a size limit.
+    const ARGON2_MAX_INPUT: u64 = 10 * 1024 * 1024; // 10 MB
+    if alg_label == "ARGON2ID" && file_size > ARGON2_MAX_INPUT {
+        return Err(anyhow!(
+            "Argon2id max input size is 10 MB (file is {} bytes)",
+            file_size
+        ));
+    }
+
     let mut hasher_sha256 = Sha256::new();
     let mut hasher_keccak = Keccak256::new();
+    let mut hasher_blake3 = blake3::Hasher::new();
+    let mut hasher_sha3_512 = Sha3_512::new();
+    let mut accumulated: Vec<u8> = if matches!(alg_label, "SHAKE256" | "ARGON2ID") {
+        Vec::with_capacity(file_size as usize)
+    } else {
+        Vec::new()
+    };
     let mut buffer = vec![0u8; 8192];
 
     let hash_compute_start = Instant::now();
@@ -274,6 +291,11 @@ async fn compute_and_store(
         match alg_label {
             "SHA256" => hasher_sha256.update(&buffer[..n]),
             "KECCAK" => hasher_keccak.update(&buffer[..n]),
+            "BLAKE3" => {
+                hasher_blake3.update(&buffer[..n]);
+            }
+            "SHA3-512" => hasher_sha3_512.update(&buffer[..n]),
+            "SHAKE256" | "ARGON2ID" => accumulated.extend_from_slice(&buffer[..n]),
             _ => {}
         }
     }
@@ -290,6 +312,30 @@ async fn compute_and_store(
     let hash = match alg_label {
         "SHA256" => format!("{:x}", hasher_sha256.finalize()),
         "KECCAK" => format!("{:x}", hasher_keccak.finalize()),
+        "BLAKE3" => hasher_blake3.finalize().to_hex().to_string(),
+        "SHA3-512" => format!("{:x}", hasher_sha3_512.finalize()),
+        "SHAKE256" => {
+            use sha3::digest::{ExtendableOutput, Update as XofUpdate, XofReader};
+            let mut xof = sha3::Shake256::default();
+            xof.update(&accumulated);
+            let mut reader = xof.finalize_xof();
+            let mut out = [0u8; 32];
+            reader.read(&mut out);
+            hex::encode(out)
+        }
+        "ARGON2ID" => {
+            // Deterministic: derive a 16-byte salt from the SHA-256 of the content.
+            let pre_salt = Sha256::digest(&accumulated);
+            let salt = &pre_salt[..16];
+            let params = Params::new(65536, 3, 1, Some(32))
+                .map_err(|e| anyhow!("Argon2id params error: {}", e))?;
+            let argon2 = Argon2::new(Argon2Algorithm::Argon2id, Argon2Version::V0x13, params);
+            let mut out = [0u8; 32];
+            argon2
+                .hash_password_into(&accumulated, salt, &mut out)
+                .map_err(|e| anyhow!("Argon2id hash error: {}", e))?;
+            hex::encode(out)
+        }
         _ => unreachable!(),
     };
     let hash_compute_ms = elapsed_ms(hash_compute_start);
@@ -548,6 +594,10 @@ fn match_algorithm(requested: &str) -> Result<(&'static str, &'static str, &'sta
     match normalized.as_str() {
         "SHA256" | "SHA-256" => Ok(("SHA256", "SHA-256", "sha256")),
         "KECCAK" | "KECCAK256" | "KECCAK-256" => Ok(("KECCAK", "KECCAK-256", "keccak256")),
+        "BLAKE3" => Ok(("BLAKE3", "BLAKE3", "blake3")),
+        "ARGON2ID" | "ARGON2" => Ok(("ARGON2ID", "ARGON2ID", "argon2id")),
+        "SHAKE256" => Ok(("SHAKE256", "SHAKE256", "shake256")),
+        "SHA3-512" | "SHA3_512" => Ok(("SHA3-512", "SHA3-512", "sha3-512")),
         other => Err(anyhow!("Unsupported hash algorithm '{}'", other)),
     }
 }
