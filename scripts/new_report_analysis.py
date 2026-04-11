@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced benchmark analysis with normalized visualizations.
-- 100% stacked bars for component breakdown
-- Ratio-based comparisons (not absolute values)
-- Color coding for context (best/worst performers)
-- Meaningful metric correlations
+Focuses on relative comparisons (ratios, percentages) for non-technical understanding.
 """
 from __future__ import annotations
 
@@ -14,15 +11,16 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import cm
+from matplotlib.patches import Patch
 
 try:
     import matplotlib
     matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib import cm
-    import numpy as np
 except ImportError:
-    print("Error: matplotlib and numpy required. Install: pip install matplotlib numpy", file=sys.stderr)
+    print("Error: matplotlib required. Install: pip install matplotlib", file=sys.stderr)
     sys.exit(1)
 
 
@@ -170,14 +168,14 @@ def plot_profile_performance_comparison(plt_module: Any, agg_data: dict, output_
 
         x = np.arange(len(profiles_list))
 
-        ax.bar(x, hash_pcts, label="Hash", color="#2ecc71", alpha=0.8)
-        ax.bar(x, sign_pcts, bottom=hash_pcts, label="Sign", color="#3498db", alpha=0.8)
+        ax.bar(x, hash_pcts, label="Hashing", color="#2ecc71", alpha=0.8)
+        ax.bar(x, sign_pcts, bottom=hash_pcts, label="Signing", color="#3498db", alpha=0.8)
         ax.bar(x, verify_pcts, bottom=np.array(hash_pcts) + np.array(sign_pcts),
-               label="Verify", color="#e74c3c", alpha=0.8)
+               label="Verification", color="#e74c3c", alpha=0.8)
 
         ax.set_ylim([0, 100])
-        ax.set_ylabel("% of Total Time")
-        ax.set_title(f"Time Component Breakdown ({hash_algo.upper()})")
+        ax.set_ylabel("Relative Time Contribution (%)")
+        ax.set_title(f"Time Component Breakdown ({hash_algo.upper()}): Relative Contribution")
         x_ticks = np.arange(len(profiles_list))
         ax.set_xticks(x_ticks)
         ax.set_xticklabels(profiles_list, rotation=45, ha="right")
@@ -216,8 +214,8 @@ def plot_hash_efficiency(plt_module: Any, agg_data: dict, output_dir: Path) -> N
         ax.text(width + 1, bar.get_y() + bar.get_height()/2, f"{eff:.1f}%",
                 va="center", fontsize=11, fontweight="bold")
 
-    ax.set_xlabel("Relative Efficiency (% of Fastest)")
-    ax.set_title("Hash Algorithm Efficiency Comparison")
+    ax.set_xlabel("Relative Speed (% of Fastest Hash)")
+    ax.set_title("Hash Algorithm Efficiency Comparison (Higher % = Faster)")
     ax.set_xlim([0, 110])
     ax.grid(axis="x", alpha=0.3)
 
@@ -263,7 +261,7 @@ def plot_signature_cost_ratio(plt_module: Any, agg_data: dict, output_dir: Path)
         ax.text(bar.get_x() + bar.get_width()/2, height + 1, f"{cost:.1f}%",
                 ha="center", va="bottom", fontsize=10, fontweight="bold")
 
-    ax.set_ylabel("% of Total Operation Time")
+    ax.set_ylabel("Relative Cost (% of Total Operation Time)")
     ax.set_title("Signature Generation Cost Ratio (SHA256)")
     ax.set_ylim([0, max(costs) * 1.15])
     x_ticks = np.arange(len(profiles_list))
@@ -272,7 +270,6 @@ def plot_signature_cost_ratio(plt_module: Any, agg_data: dict, output_dir: Path)
     ax.grid(axis="y", alpha=0.3)
 
     # Legend
-    from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor="#1f77b4", alpha=0.8, label="Classical"),
         Patch(facecolor="#d62728", alpha=0.8, label="PQC"),
@@ -298,7 +295,7 @@ def plot_classical_vs_pqc_performance(plt_module: Any, agg_data: dict, output_di
                 hybrid_times.append(total)
 
     if not hybrid_times:
-        ax.text(0.5, 0.5, "No hybrid data available", ha="center", va="center")
+        ax.text(0.5, 0.5, "No hybrid data available for baseline comparison", ha="center", va="center")
         fig.savefig(output_dir / "04_classical_vs_pqc.png", dpi=150, bbox_inches="tight")
         return
 
@@ -344,7 +341,7 @@ def plot_classical_vs_pqc_performance(plt_module: Any, agg_data: dict, output_di
                 ha="center", va="bottom" if height >= 100 else "top", fontsize=10, fontweight="bold")
 
     ax.set_ylabel("Time Relative to Hybrid (%)")
-    ax.set_title("Classical vs PQC Performance (Hybrid = 100%)")
+    ax.set_title("Performance Comparison: Classical vs PQC (Hybrid = 100%)")
     ax.set_ylim([0, max(all_ratios) * 1.15])
     ax.set_xticks(x)
     ax.set_xticklabels(all_profiles, rotation=45, ha="right")
@@ -399,7 +396,7 @@ def plot_signature_size_comparison(plt_module: Any, agg_data: dict, output_dir: 
         ax.text(bar.get_x() + bar.get_width()/2, height + 2, f"{int(size)}B",
                 ha="center", va="bottom", fontsize=9, fontweight="bold")
 
-    ax.set_ylabel("Relative Size (% of Largest)")
+    ax.set_ylabel("Relative Size (% of Largest Profile)")
     ax.set_title("Signature Size Overhead (Normalized)")
     ax.set_ylim([0, 110])
     ax.set_xticks(x)
@@ -445,7 +442,3 @@ def main() -> int:
 
     print(f"\n✅ Analysis complete: {output_dir}")
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
