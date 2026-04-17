@@ -4,88 +4,112 @@ The top-level auxiliary file: final-report.aux
 The style file: plainnat.bst
 Database file #1: bibliography.bib
 Warning--entry type for "sectigo-hndl-2025" isn't style-file defined
---line 137 of file bibliography.bib
+--line 19 of file bibliography.bib
 Warning--entry type for "hashicorp-hndl-2025" isn't style-file defined
---line 144 of file bibliography.bib
-Warning--entry type for "aws-mlkem-deployment-2025" isn't style-file defined
---line 151 of file bibliography.bib
-Warning--entry type for "google-cloud-kms-pqc-2025" isn't style-file defined
---line 159 of file bibliography.bib
-Warning--entry type for "nist-pqc-call-2016" isn't style-file defined
---line 167 of file bibliography.bib
-Warning--entry type for "nist-pqc-timeline" isn't style-file defined
---line 176 of file bibliography.bib
-Warning--entry type for "nist-round2-2019" isn't style-file defined
---line 183 of file bibliography.bib
-Warning--entry type for "nist-round3-2020" isn't style-file defined
---line 191 of file bibliography.bib
-Warning--entry type for "sike-broken-2022" isn't style-file defined
---line 207 of file bibliography.bib
-Warning--entry type for "nist-hqc-selection-2025" isn't style-file defined
---line 217 of file bibliography.bib
-Warning--entry type for "nist-nccoe-pqc-migration-2023" isn't style-file defined
---line 225 of file bibliography.bib
-Warning--entry type for "ietf-lamps-kyber-certs" isn't style-file defined
---line 233 of file bibliography.bib
+--line 26 of file bibliography.bib
 Warning--entry type for "thales-mldsa-2025" isn't style-file defined
---line 248 of file bibliography.bib
+--line 169 of file bibliography.bib
+Warning--entry type for "aws-mlkem-deployment-2025" isn't style-file defined
+--line 177 of file bibliography.bib
+Warning--entry type for "google-cloud-kms-pqc-2025" isn't style-file defined
+--line 185 of file bibliography.bib
+Warning--entry type for "ietf-lamps-kyber-certs" isn't style-file defined
+--line 203 of file bibliography.bib
+Warning--entry type for "redsift-pqc-progress-2026" isn't style-file defined
+--line 211 of file bibliography.bib
+Warning--entry type for "nist-pqc-call-2016" isn't style-file defined
+--line 218 of file bibliography.bib
+Warning--entry type for "nist-pqc-timeline" isn't style-file defined
+--line 227 of file bibliography.bib
+Warning--entry type for "nist-round2-2019" isn't style-file defined
+--line 234 of file bibliography.bib
+Warning--entry type for "nist-round3-2020" isn't style-file defined
+--line 242 of file bibliography.bib
+Warning--entry type for "nist-nccoe-pqc-migration-2023" isn't style-file defined
+--line 259 of file bibliography.bib
+Warning--entry type for "nist-hqc-selection-2025" isn't style-file defined
+--line 276 of file bibliography.bib
+Warning--entry type for "sike-broken-2022" isn't style-file defined
+--line 293 of file bibliography.bib
 Warning--entry type for "Ama24d" isn't style-file defined
---line 379 of file bibliography.bib
-Warning--entry type for "Ama24a" isn't style-file defined
---line 387 of file bibliography.bib
-Warning--entry type for "Ama24b" isn't style-file defined
---line 395 of file bibliography.bib
-Warning--entry type for "Ama24c" isn't style-file defined
---line 403 of file bibliography.bib
-Warning--entry type for "Ama23" isn't style-file defined
---line 411 of file bibliography.bib
+--line 402 of file bibliography.bib
 Warning--entry type for "Goo24" isn't style-file defined
---line 419 of file bibliography.bib
+--line 409 of file bibliography.bib
+Warning--entry type for "Ama24a" isn't style-file defined
+--line 416 of file bibliography.bib
 Warning--entry type for "Yan24" isn't style-file defined
---line 448 of file bibliography.bib
+--line 423 of file bibliography.bib
+Warning--entry type for "Ama24b" isn't style-file defined
+--line 430 of file bibliography.bib
+Warning--entry type for "Ama24c" isn't style-file defined
+--line 437 of file bibliography.bib
+Warning--entry type for "Ama23" isn't style-file defined
+--line 455 of file bibliography.bib
 Warning--entry type for "minio-docs" isn't style-file defined
---line 467 of file bibliography.bib
-Warning--I didn't find a database entry for "redsift-pqc-progress-2026"
-Warning--I didn't find a database entry for "minio-2025"
-You've used 49 entries,
+--line 529 of file bibliography.bib
+Warning--entry type for "minio-2025" isn't style-file defined
+--line 536 of file bibliography.bib
+Warning--entry type for "postgresql-json-docs" isn't style-file defined
+--line 544 of file bibliography.bib
+Warning--entry type for "nginx-docs" isn't style-file defined
+--line 561 of file bibliography.bib
+Warning--entry type for "docker-compose-docs" isn't style-file defined
+--line 568 of file bibliography.bib
+Warning--entry type for "react-docs" isn't style-file defined
+--line 575 of file bibliography.bib
+Warning--entry type for "vite-docs" isn't style-file defined
+--line 582 of file bibliography.bib
+Warning--entry type for "rust-std-instant" isn't style-file defined
+--line 589 of file bibliography.bib
+Warning--entry type for "rust-rand-crate" isn't style-file defined
+--line 677 of file bibliography.bib
+Warning--entry type for "aws-graviton" isn't style-file defined
+--line 706 of file bibliography.bib
+Warning--entry type for "google-axion" isn't style-file defined
+--line 713 of file bibliography.bib
+Warning--entry type for "arm-crypto-ext" isn't style-file defined
+--line 720 of file bibliography.bib
+Warning--entry type for "pqcrypto-rust-crate" isn't style-file defined
+--line 731 of file bibliography.bib
+You've used 79 entries,
             2773 wiz_defined-function locations,
-            839 strings with 12412 characters,
-and the built_in function-call counts, 18656 in all, are:
-= -- 1657
-> -- 945
-< -- 50
-+ -- 341
-- -- 282
-* -- 1288
-:= -- 2799
-add.period$ -- 156
-call.type$ -- 49
-change.case$ -- 239
-chr.to.int$ -- 39
-cite$ -- 98
-duplicate$ -- 851
-empty$ -- 1686
-format.name$ -- 368
-if$ -- 3987
-int.to.chr$ -- 11
+            1000 strings with 17208 characters,
+and the built_in function-call counts, 30595 in all, are:
+= -- 2764
+> -- 1465
+< -- 81
++ -- 529
+- -- 438
+* -- 2127
+:= -- 4590
+add.period$ -- 264
+call.type$ -- 79
+change.case$ -- 380
+chr.to.int$ -- 67
+cite$ -- 158
+duplicate$ -- 1437
+empty$ -- 2786
+format.name$ -- 562
+if$ -- 6559
+int.to.chr$ -- 13
 int.to.str$ -- 1
-missing$ -- 11
-newline$ -- 259
-num.names$ -- 196
-pop$ -- 606
+missing$ -- 27
+newline$ -- 422
+num.names$ -- 316
+pop$ -- 936
 preamble$ -- 1
-purify$ -- 190
+purify$ -- 302
 quote$ -- 0
-skip$ -- 751
+skip$ -- 1226
 stack$ -- 0
-substring$ -- 325
-swap$ -- 130
-text.length$ -- 8
+substring$ -- 652
+swap$ -- 218
+text.length$ -- 16
 text.prefix$ -- 0
 top$ -- 0
-type$ -- 539
+type$ -- 859
 warning$ -- 0
-while$ -- 167
+while$ -- 285
 width$ -- 0
-write$ -- 626
-(There were 23 warnings)
+write$ -- 1035
+(There were 34 warnings)

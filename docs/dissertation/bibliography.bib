@@ -1,3 +1,35 @@
+% ========================================================================
+% Abstract
+% ========================================================================
+@article{efron1979bootstrap,
+  author  = {Bradley Efron},
+  title   = {Bootstrap Methods: Another Look at the Jackknife},
+  journal = {The Annals of Statistics},
+  year    = {1979},
+  volume  = {7},
+  number  = {1},
+  pages   = {1--26},
+  doi     = {10.1214/aos/1176344552}
+}
+
+
+% ========================================================================
+% Introduction
+% ========================================================================
+@online{sectigo-hndl-2025,
+  author = {Sectigo},
+  title  = {Harvest now, decrypt later: Quantum threat},
+  year   = {2025},
+  url    = {https://www.sectigo.com/resource-library/harvest-now-decrypt-later-quantum-threat}
+}
+
+@online{hashicorp-hndl-2025,
+  author = {HashiCorp},
+  title  = {Harvest now, decrypt later: Why today's encrypted data isn't safe forever},
+  year   = {2025},
+  url    = {https://www.hashicorp.com/blog/harvest-now-decrypt-later}
+}
+
 @article{shor1997,
   author  = {Peter W. Shor},
   title   = {Polynomial-Time Algorithms for Prime Factorization and Discrete Logarithms on a Quantum Computer},
@@ -8,23 +40,26 @@
   pages   = {1484--1509}
 }
 
-@article{gidney-ekera-2021,
-  author  = {Craig Gidney and Martin Ekerå},
-  title   = {How to factor 2048 bit RSA integers in 8 hours using 20 million noisy qubits},
-  journal = {Quantum},
-  year    = {2021},
-  volume  = {5},
-  pages   = {433},
-  doi     = {10.22331/q-2021-04-15-433}
+@article{rivest1978rsa,
+  author  = {Ronald L. Rivest and Adi Shamir and Leonard Adleman},
+  title   = {A Method for Obtaining Digital Signatures and Public-Key Cryptosystems},
+  journal = {Communications of the {ACM}},
+  year    = {1978},
+  volume  = {21},
+  number  = {2},
+  pages   = {120--126},
+  doi     = {10.1145/359340.359342}
 }
 
-@inproceedings{grover1996,
-  author    = {Lov K. Grover},
-  title     = {A fast quantum mechanical algorithm for database search},
-  booktitle = {Proceedings of the 28th Annual ACM Symposium on Theory of Computing},
-  year      = {1996},
-  pages     = {212--219},
-  doi       = {10.1145/237814.237866}
+@article{johnson2001ecdsa,
+  author  = {Don Johnson and Alfred Menezes and Scott Vanstone},
+  title   = {The Elliptic Curve Digital Signature Algorithm ({ECDSA})},
+  journal = {International Journal of Information Security},
+  year    = {2001},
+  volume  = {1},
+  number  = {1},
+  pages   = {36--63},
+  doi     = {10.1007/s102070100002}
 }
 
 @misc{nist-fips-203-2024,
@@ -57,6 +92,20 @@
   doi          = {10.6028/NIST.FIPS.205}
 }
 
+@misc{nist-fips206-2024,
+  author      = {National Institute of Standards and Technology},
+  title       = {{FN-DSA}: {FN-DSA}-Based Digital Signature Algorithm},
+  subtitle    = {Federal Information Processing Standards Publication 206},
+  year        = {2024},
+  month       = aug,
+  institution = {U.S. Department of Commerce},
+  doi         = {10.6028/NIST.FIPS.206}
+}
+
+
+% ========================================================================
+% Literature Review
+% ========================================================================
 @misc{nist-fips-186-5-2023,
   author       = {National Institute of Standards and Technology},
   title        = {Digital Signature Standard (DSS)},
@@ -67,85 +116,62 @@
   doi          = {10.6028/NIST.FIPS.186-5}
 }
 
-@misc{nist-sp800-208-2020,
-  author       = {National Institute of Standards and Technology},
-  title        = {Recommendation for Stateful Hash-Based Signature Schemes},
-  subtitle     = {Special Publication 800-208},
-  year         = {2020},
-  month        = oct,
-  institution  = {National Institute of Standards and Technology},
-  doi          = {10.6028/NIST.SP.800-208}
+@article{gidney-ekera-2021,
+  author  = {Craig Gidney and Martin Ekerå},
+  title   = {How to factor 2048 bit RSA integers in 8 hours using 20 million noisy qubits},
+  journal = {Quantum},
+  year    = {2021},
+  volume  = {5},
+  pages   = {433},
+  doi     = {10.22331/q-2021-04-15-433}
 }
 
-@misc{nist-ir8545-2025,
-  author       = {National Institute of Standards and Technology},
-  title        = {Status Report on the Fourth Round of the NIST Post-Quantum Cryptography Standardization Process},
-  subtitle     = {NIST Interagency Report 8545},
-  year         = {2025},
-  month        = mar,
-  institution  = {National Institute of Standards and Technology}
+@inproceedings{grover1996,
+  author    = {Lov K. Grover},
+  title     = {A fast quantum mechanical algorithm for database search},
+  booktitle = {Proceedings of the 28th Annual ACM Symposium on Theory of Computing},
+  year      = {1996},
+  pages     = {212--219},
+  doi       = {10.1145/237814.237866}
 }
 
-@misc{nist-ir8547-2024,
-  author       = {National Institute of Standards and Technology},
-  title        = {Transition to Post-Quantum Cryptography Standards},
-  subtitle     = {NIST Interagency Report 8547 (Draft)},
-  year         = {2024},
-  month        = nov,
-  institution  = {National Institute of Standards and Technology}
+@misc{nist-sp800-131a-2019,
+  author      = {Barker, Elaine and Roginsky, Allen},
+  title       = {Transitioning the Use of Cryptographic Algorithms and Key Lengths},
+  subtitle    = {Special Publication 800-131A Revision 2},
+  year        = {2019},
+  month       = mar,
+  institution = {National Institute of Standards and Technology},
+  doi         = {10.6028/NIST.SP.800-131Ar2}
 }
 
-@misc{nsm-10-2022,
-  author       = {The White House},
-  title        = {National Security Memorandum on Promoting United States Leadership in Quantum Computing While Mitigating Risks to Vulnerable Cryptographic Systems},
-  year         = {2022},
-  month        = may,
-  note         = {NSM-10},
-  url          = {https://www.whitehouse.gov/briefing-room/statements-releases/2022/05/04/national-security-memorandum-on-promoting-united-states-leadership-in-quantum-computing-while-mitigating-risks-to-vulnerable-cryptographic-systems/}
+@article{mosca2018,
+  author  = {Michele Mosca},
+  title   = {Cybersecurity in an Era with Quantum Computers: Will We Be Ready?},
+  journal = {IEEE Security \& Privacy},
+  year    = {2018},
+  volume  = {16},
+  number  = {5},
+  pages   = {38--41},
+  doi     = {10.1109/MSP.2018.3761723}
 }
 
-@misc{rfc8391-xmss,
-  author       = {A. Huelsing and D. Butin and S. Gazdag and J. Rijneveld and A. Mohaisen},
-  title        = {{XMSS}: eXtended Merkle Signature Scheme},
-  howpublished = {RFC 8391},
-  year         = {2018},
-  month        = may,
-  publisher    = {Internet Engineering Task Force},
-  doi          = {10.17487/RFC8391}
+@article{preskill2018,
+  author  = {John Preskill},
+  title   = {Quantum Computing in the {NISQ} Era and Beyond},
+  journal = {Quantum},
+  year    = {2018},
+  volume  = {2},
+  pages   = {79},
+  doi     = {10.22331/q-2018-08-06-79}
 }
 
-@misc{rfc8554-lms,
-  author       = {D. McGrew and M. Curcio and S. Fluhrer},
-  title        = {Leighton-Micali Hash-Based Signatures},
-  howpublished = {RFC 8554},
-  year         = {2019},
-  month        = apr,
-  publisher    = {Internet Engineering Task Force},
-  doi          = {10.17487/RFC8554}
-}
-
-@misc{rfc9881-mldsa-x509,
-  author       = {J. Massimo and P. Kampanakis and S. Turner and B. Westerbaan},
-  title        = {Internet {X.509} Public Key Infrastructure: Algorithm Identifiers for {ML-DSA}},
-  howpublished = {RFC 9881},
-  year         = {2025},
-  month        = oct,
-  publisher    = {Internet Engineering Task Force},
-  doi          = {10.17487/RFC9881}
-}
-
-@online{sectigo-hndl-2025,
-  author = {Sectigo},
-  title  = {Harvest now, decrypt later: Quantum threat},
+@online{thales-mldsa-2025,
+  author = {Thales Group},
+  title  = {{ML-DSA} Programming Guide for Luna {HSM}},
   year   = {2025},
-  url    = {https://www.sectigo.com/resource-library/harvest-now-decrypt-later-quantum-threat}
-}
-
-@online{hashicorp-hndl-2025,
-  author = {HashiCorp},
-  title  = {Harvest now, decrypt later: Why today's encrypted data isn't safe forever},
-  year   = {2025},
-  url    = {https://www.hashicorp.com/blog/harvest-now-decrypt-later}
+  month  = nov,
+  url    = {https://www.thalesdocs.com/gphsm/luna/7/docs/network/Content/sdk/extensions/pqc/ML-DSA_programming_guide.htm}
 }
 
 @online{aws-mlkem-deployment-2025,
@@ -162,6 +188,31 @@
   year   = {2025},
   month  = feb,
   url    = {https://cloud.google.com/blog/products/identity-security/google-cloud-kms-now-supports-quantum-safe-digital-signatures}
+}
+
+@misc{rfc9881-mldsa-x509,
+  author       = {J. Massimo and P. Kampanakis and S. Turner and B. Westerbaan},
+  title        = {Internet {X.509} Public Key Infrastructure: Algorithm Identifiers for {ML-DSA}},
+  howpublished = {RFC 9881},
+  year         = {2025},
+  month        = oct,
+  publisher    = {Internet Engineering Task Force},
+  doi          = {10.17487/RFC9881}
+}
+
+@online{ietf-lamps-kyber-certs,
+  author       = {J. Massimo and others},
+  title        = {Internet {X.509} Public Key Infrastructure: Algorithm Identifiers for {Kyber}},
+  year         = {2024},
+  note         = {IETF Internet-Draft},
+  url          = {https://datatracker.ietf.org/doc/draft-ietf-lamps-kyber-certificates/}
+}
+
+@online{redsift-pqc-progress-2026,
+  author = {{Red Sift}},
+  title  = {State of Post-Quantum Cryptography in PKI},
+  year   = {2026},
+  url    = {https://redsift.com/resources/post-quantum-pki-progress}
 }
 
 @online{nist-pqc-call-2016,
@@ -196,30 +247,13 @@
   url          = {https://csrc.nist.gov/projects/post-quantum-cryptography/round-3-submissions}
 }
 
-@online{nist-fn_dsa-selection-2022,
+@misc{nist-ir8547-2024,
   author       = {National Institute of Standards and Technology},
-  title        = {{NIST} to Standardize Encryption Algorithms That Can Resist Attack by Quantum Computers},
-  year         = {2022},
-  month        = jul,
-  url          = {https://www.nist.gov/news-events/news/2022/07/nist-standardize-encryption-algorithms-can-resist-attack-quantum-computers}
-}
-
-@online{sike-broken-2022,
-  author       = {Wouter Castryck and Thomas Decru},
-  title        = {An efficient key recovery attack on {SIDH} (preliminary version)},
-  year         = {2022},
-  month        = jul,
-  eprinttype   = {Cryptology ePrint Archive},
-  eprintclass  = {Report 2022/975},
-  url          = {https://eprint.iacr.org/2022/975}
-}
-
-@online{nist-hqc-selection-2025,
-  author       = {National Institute of Standards and Technology},
-  title        = {{NIST} Selects {HQC} as Fifth Algorithm for Post-Quantum Encryption},
-  year         = {2025},
-  month        = mar,
-  url          = {https://www.nist.gov/news-events/news/2025/03/nist-selects-hqc-fifth-algorithm-post-quantum-encryption}
+  title        = {Transition to Post-Quantum Cryptography Standards},
+  subtitle     = {NIST Interagency Report 8547 (Draft)},
+  year         = {2024},
+  month        = nov,
+  institution  = {National Institute of Standards and Technology}
 }
 
 @online{nist-nccoe-pqc-migration-2023,
@@ -230,78 +264,40 @@
   url          = {https://www.nccoe.nist.gov/crypto-agility-considerations-migrating-post-quantum-cryptographic-algorithms}
 }
 
-@online{ietf-lamps-kyber-certs,
-  author       = {J. Massimo and others},
-  title        = {Internet {X.509} Public Key Infrastructure: Algorithm Identifiers for {Kyber}},
-  year         = {2024},
-  note         = {IETF Internet-Draft},
-  url          = {https://datatracker.ietf.org/doc/draft-ietf-lamps-kyber-certificates/}
+@misc{nsm-10-2022,
+  author       = {The White House},
+  title        = {National Security Memorandum on Promoting United States Leadership in Quantum Computing While Mitigating Risks to Vulnerable Cryptographic Systems},
+  year         = {2022},
+  month        = may,
+  note         = {NSM-10},
+  url          = {https://www.whitehouse.gov/briefing-room/statements-releases/2022/05/04/national-security-memorandum-on-promoting-united-states-leadership-in-quantum-computing-while-mitigating-risks-to-vulnerable-cryptographic-systems/}
 }
 
-@online{cloudflare-warp-pqc-2025,
-  author = {Cloudflare},
-  title  = {{WARP} client now supports post-quantum cryptography ({PQC})},
-  year   = {2025},
-  url    = {https://blog.cloudflare.com/post-quantum-warp/}
+@online{nist-hqc-selection-2025,
+  author       = {National Institute of Standards and Technology},
+  title        = {{NIST} Selects {HQC} as Fifth Algorithm for Post-Quantum Encryption},
+  year         = {2025},
+  month        = mar,
+  url          = {https://www.nist.gov/news-events/news/2025/03/nist-selects-hqc-fifth-algorithm-post-quantum-encryption}
 }
 
-@online{thales-mldsa-2025,
-  author = {Thales Group},
-  title  = {{ML-DSA} Programming Guide for Luna {HSM}},
-  year   = {2025},
-  month  = nov,
-  url    = {https://www.thalesdocs.com/gphsm/luna/7/docs/network/Content/sdk/extensions/pqc/ML-DSA_programming_guide.htm}
+@misc{nist-ir8545-2025,
+  author       = {National Institute of Standards and Technology},
+  title        = {Status Report on the Fourth Round of the NIST Post-Quantum Cryptography Standardization Process},
+  subtitle     = {NIST Interagency Report 8545},
+  year         = {2025},
+  month        = mar,
+  institution  = {National Institute of Standards and Technology}
 }
 
-@online{digicert-pqc-progress-2024,
-  author = {DigiCert},
-  title  = {Tracking the progress toward post-quantum cryptography},
-  year   = {2024},
-  month  = nov,
-  url    = {https://www.digicert.com/blog/the-progress-toward-post-quantum-cryptography}
-}
-
-% ---- Entries added for Sections 2--4 ----
-
-@misc{nist-fips206-2024,
-  author      = {National Institute of Standards and Technology},
-  title       = {{FN-DSA}: {FN-DSA}-Based Digital Signature Algorithm},
-  subtitle    = {Federal Information Processing Standards Publication 206},
-  year        = {2024},
-  month       = aug,
-  institution = {U.S. Department of Commerce},
-  doi         = {10.6028/NIST.FIPS.206}
-}
-
-@misc{nist-sp800-131a-2019,
-  author      = {Barker, Elaine and Roginsky, Allen},
-  title       = {Transitioning the Use of Cryptographic Algorithms and Key Lengths},
-  subtitle    = {Special Publication 800-131A Revision 2},
-  year        = {2019},
-  month       = mar,
-  institution = {National Institute of Standards and Technology},
-  doi         = {10.6028/NIST.SP.800-131Ar2}
-}
-
-@article{mosca2018,
-  author  = {Michele Mosca},
-  title   = {Cybersecurity in an Era with Quantum Computers: Will We Be Ready?},
-  journal = {IEEE Security \& Privacy},
-  year    = {2018},
-  volume  = {16},
-  number  = {5},
-  pages   = {38--41},
-  doi     = {10.1109/MSP.2018.3761723}
-}
-
-@article{preskill2018,
-  author  = {John Preskill},
-  title   = {Quantum Computing in the {NISQ} Era and Beyond},
-  journal = {Quantum},
-  year    = {2018},
-  volume  = {2},
-  pages   = {79},
-  doi     = {10.22331/q-2018-08-06-79}
+@online{sike-broken-2022,
+  author       = {Wouter Castryck and Thomas Decru},
+  title        = {An efficient key recovery attack on {SIDH} (preliminary version)},
+  year         = {2022},
+  month        = jul,
+  eprinttype   = {Cryptology ePrint Archive},
+  eprintclass  = {Report 2022/975},
+  url          = {https://eprint.iacr.org/2022/975}
 }
 
 @article{regev2009,
@@ -349,6 +345,36 @@
   doi       = {10.1007/0-387-34805-0_21}
 }
 
+@misc{rfc8391-xmss,
+  author       = {A. Huelsing and D. Butin and S. Gazdag and J. Rijneveld and A. Mohaisen},
+  title        = {{XMSS}: eXtended Merkle Signature Scheme},
+  howpublished = {RFC 8391},
+  year         = {2018},
+  month        = may,
+  publisher    = {Internet Engineering Task Force},
+  doi          = {10.17487/RFC8391}
+}
+
+@misc{rfc8554-lms,
+  author       = {D. McGrew and M. Curcio and S. Fluhrer},
+  title        = {Leighton-Micali Hash-Based Signatures},
+  howpublished = {RFC 8554},
+  year         = {2019},
+  month        = apr,
+  publisher    = {Internet Engineering Task Force},
+  doi          = {10.17487/RFC8554}
+}
+
+@misc{nist-sp800-208-2020,
+  author       = {National Institute of Standards and Technology},
+  title        = {Recommendation for Stateful Hash-Based Signature Schemes},
+  subtitle     = {Special Publication 800-208},
+  year         = {2020},
+  month        = oct,
+  institution  = {National Institute of Standards and Technology},
+  doi          = {10.6028/NIST.SP.800-208}
+}
+
 @misc{fouque2020fn_dsa,
   author       = {Pierre-Alain Fouque and Jeffrey Hoffstein and Paul Kirchner and
                   Vadim Lyubashevsky and Thomas Pornin and Thomas Prest and
@@ -373,9 +399,6 @@
   doi       = {10.1007/BFb0054868}
 }
 
-% ---- Cloud workflow citations (Section 4) ----
-
-% Ama24d: envelope encryption / DEK-KEK architecture overview
 @online{Ama24d,
   author = {{Amazon Web Services}},
   title  = {Client-side encryption},
@@ -383,39 +406,6 @@
   url    = {https://docs.aws.amazon.com/kms/latest/cryptographic-details/client-side-encryption.html}
 }
 
-% Ama24a: S3 SSE-KMS -- DEK stored in object metadata / key store
-@online{Ama24a,
-  author = {{Amazon Web Services}},
-  title  = {Using server-side encryption with {AWS KMS} keys ({SSE-KMS})},
-  year   = {2024},
-  url    = {https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html}
-}
-
-% Ama24b: object integrity checksums during ingestion
-@online{Ama24b,
-  author = {{Amazon Web Services}},
-  title  = {Checking object integrity in {Amazon S3}},
-  year   = {2024},
-  url    = {https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html}
-}
-
-% Ama24c: integrity verification for data at rest / retrieval
-@online{Ama24c,
-  author = {{Amazon Web Services}},
-  title  = {Checking object integrity for data at rest in {Amazon S3}},
-  year   = {2024},
-  url    = {https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity-at-rest.html}
-}
-
-% Ama23: CloudTrail signed digest files / log integrity validation
-@online{Ama23,
-  author = {{Amazon Web Services}},
-  title  = {Validating {CloudTrail} log file integrity},
-  year   = {2023},
-  url    = {https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-intro.html}
-}
-
-% Goo24: Google Cloud KMS envelope encryption
 @online{Goo24,
   author = {{Google Cloud}},
   title  = {Envelope encryption},
@@ -423,7 +413,34 @@
   url    = {https://cloud.google.com/kms/docs/envelope-encryption}
 }
 
-% KS06: NIST SP 800-92 -- log management and signed audit logs
+@online{Ama24a,
+  author = {{Amazon Web Services}},
+  title  = {Using server-side encryption with {AWS KMS} keys ({SSE-KMS})},
+  year   = {2024},
+  url    = {https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html}
+}
+
+@online{Yan24,
+  author = {{Yandex Cloud}},
+  title  = {Envelope encryption},
+  year   = {2024},
+  url    = {https://yandex.cloud/en/docs/kms/concepts/envelope}
+}
+
+@online{Ama24b,
+  author = {{Amazon Web Services}},
+  title  = {Checking object integrity in {Amazon S3}},
+  year   = {2024},
+  url    = {https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html}
+}
+
+@online{Ama24c,
+  author = {{Amazon Web Services}},
+  title  = {Checking object integrity for data at rest in {Amazon S3}},
+  year   = {2024},
+  url    = {https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity-at-rest.html}
+}
+
 @misc{KS06,
   author      = {Karen Kent and Murugiah Souppaya},
   title       = {Guide to Computer Security Log Management},
@@ -435,7 +452,13 @@
   url         = {https://csrc.nist.gov/pubs/sp/800/92/final}
 }
 
-% Ven+23: García-Ruiz et al. (2023) -- aws-s3-integrity-check tool
+@online{Ama23,
+  author = {{Amazon Web Services}},
+  title  = {Validating {CloudTrail} log file integrity},
+  year   = {2023},
+  url    = {https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-intro.html}
+}
+
 @article{Ven+23,
   author  = {García-Ruiz, Yanina and Teufel, Bernhard and Stanitsas, Pantelis and others},
   title   = {aws-s3-integrity-check: an open-source bash tool to verify the integrity of a dataset stored on {Amazon S3}},
@@ -444,15 +467,87 @@
   doi     = {10.46471/gigabyte.87}
 }
 
-% Yan24: Yandex Cloud KMS envelope encryption documentation
-@online{Yan24,
-  author = {{Yandex Cloud}},
-  title  = {Envelope encryption},
-  year   = {2024},
-  url    = {https://yandex.cloud/en/docs/kms/concepts/envelope}
+@inproceedings{stebila2016oqs,
+  author    = {Douglas Stebila and Michele Mosca},
+  title     = {Post-Quantum Key Exchange for the {Internet} and the {Open Quantum Safe} Project},
+  booktitle = {Selected Areas in Cryptography -- {SAC} 2016},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {10532},
+  pages     = {14--37},
+  publisher = {Springer},
+  year      = {2017},
+  doi       = {10.1007/978-3-319-69453-5_2}
 }
 
-% CBOR: RFC 8949 (Concise Binary Object Representation)
+@inproceedings{paquin2020benchmarking,
+  author    = {Christian Paquin and Douglas Stebila and Goutam Tamvada},
+  title     = {Benchmarking Post-Quantum Cryptography in {TLS}},
+  booktitle = {Post-Quantum Cryptography -- {PQCrypto} 2020},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {12100},
+  pages     = {72--91},
+  publisher = {Springer},
+  year      = {2020},
+  doi       = {10.1007/978-3-030-44223-1_5}
+}
+
+@inproceedings{sikeridis2020assessing,
+  author    = {Dimitrios Sikeridis and Panos Kampanakis and Michael Devetsikiotis},
+  title     = {Assessing the Overhead of Post-Quantum Cryptography in {TLS} 1.3 and {SSH}},
+  booktitle = {Proceedings of the 16th International Conference on Emerging Networking
+               Experiments and Technologies ({CoNEXT} 2020)},
+  year      = {2020},
+  pages     = {149--156},
+  publisher = {{ACM}},
+  doi       = {10.1145/3386367.3431305}
+}
+
+
+% ========================================================================
+% Methodology
+% ========================================================================
+@article{merkel2014docker,
+  author  = {Dirk Merkel},
+  title   = {Docker: Lightweight {Linux} Containers for Consistent Development and Deployment},
+  journal = {Linux Journal},
+  year    = {2014},
+  volume  = {2014},
+  number  = {239},
+  pages   = {2}
+}
+
+@inproceedings{matsakis2014rust,
+  author    = {Nicholas D. Matsakis and Felix S. Klock},
+  title     = {The {Rust} Language},
+  booktitle = {Proceedings of the 2014 {ACM} {SIGAda} Annual Conference on High Integrity Language Technology},
+  year      = {2014},
+  pages     = {103--104},
+  publisher = {{ACM}},
+  doi       = {10.1145/2692956.2663188}
+}
+
+@online{minio-docs,
+  author = {{MinIO, Inc.}},
+  title  = {{MinIO} Object Storage for {Linux}},
+  year   = {2024},
+  url    = {https://min.io/docs/minio/linux/index.html}
+}
+
+@online{minio-2025,
+  author = {{MinIO, Inc.}},
+  title  = {MinIO Archiving Open Source Repository},
+  year   = {2026},
+  month  = feb,
+  url    = {https://github.com/minio/minio}
+}
+
+@online{postgresql-json-docs,
+  author = {{PostgreSQL Global Development Group}},
+  title  = {{PostgreSQL} Documentation: {JSON} Types},
+  year   = {2024},
+  url    = {https://www.postgresql.org/docs/current/datatype-json.html}
+}
+
 @misc{rfc8949-cbor,
   author       = {C. Bormann and P. Hoffman},
   title        = {Concise Binary Object Representation ({CBOR})},
@@ -463,15 +558,103 @@
   doi          = {10.17487/RFC8949}
 }
 
-% MinIO: open-source S3-compatible object storage
-@online{minio-docs,
-  author = {{MinIO, Inc.}},
-  title  = {{MinIO} Object Storage for {Linux}},
+@online{nginx-docs,
+  author = {{Nginx, Inc.}},
+  title  = {{Nginx} Documentation},
   year   = {2024},
-  url    = {https://min.io/docs/minio/linux/index.html}
+  url    = {https://nginx.org/en/docs/}
 }
 
-% BLAKE3: fast, parallel cryptographic hash function
+@online{docker-compose-docs,
+  author = {{Docker, Inc.}},
+  title  = {{Docker Compose} Overview},
+  year   = {2024},
+  url    = {https://docs.docker.com/compose/}
+}
+
+@online{react-docs,
+  author = {{Meta Platforms, Inc.}},
+  title  = {React: The Library for Web and Native User Interfaces},
+  year   = {2024},
+  url    = {https://react.dev/}
+}
+
+@online{vite-docs,
+  author = {{Evan You and Vite Contributors}},
+  title  = {Vite: Next Generation Frontend Tooling},
+  year   = {2024},
+  url    = {https://vitejs.dev/}
+}
+
+@online{rust-std-instant,
+  author = {{The Rust Project Developers}},
+  title  = {std::time::Instant --- {Rust} Standard Library},
+  year   = {2024},
+  url    = {https://doc.rust-lang.org/std/time/struct.Instant.html}
+}
+
+@book{shostack2014threat,
+  author    = {Adam Shostack},
+  title     = {Threat Modeling: Designing for Security},
+  publisher = {Wiley},
+  address   = {Indianapolis, {IN}},
+  year      = {2014}
+}
+
+@article{bishop1996toctou,
+  author  = {Matt Bishop and Michael Dilger},
+  title   = {Checking for Race Conditions in File Accesses},
+  journal = {Computing Systems},
+  year    = {1996},
+  volume  = {9},
+  number  = {2},
+  pages   = {131--152}
+}
+
+@inproceedings{kocher1996timing,
+  author    = {Paul C. Kocher},
+  title     = {Timing Attacks on Implementations of {Diffie--Hellman}, {RSA}, {DSS}, and Other Systems},
+  booktitle = {Advances in Cryptology -- {CRYPTO} 1996},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {1109},
+  pages     = {104--113},
+  publisher = {Springer},
+  year      = {1996},
+  doi       = {10.1007/3-540-68697-5_9}
+}
+
+@article{sandhu1996rbac,
+  author  = {Ravi S. Sandhu and Edward J. Coyne and Hal L. Feinstein and Charles E. Youman},
+  title   = {Role-Based Access Control Models},
+  journal = {{IEEE} Computer},
+  year    = {1996},
+  volume  = {29},
+  number  = {2},
+  pages   = {38--47},
+  doi     = {10.1109/2.485845}
+}
+
+@article{turner1986token,
+  author  = {Jonathan S. Turner},
+  title   = {New Directions in Communications (or Which Way to the Information Age?)},
+  journal = {{IEEE} Communications Magazine},
+  year    = {1986},
+  volume  = {24},
+  number  = {10},
+  pages   = {8--15},
+  doi     = {10.1109/MCOM.1986.1092946}
+}
+
+@misc{rfc2104-hmac,
+  author       = {H. Krawczyk and M. Bellare and R. Canetti},
+  title        = {{HMAC}: Keyed-Hashing for Message Authentication},
+  howpublished = {RFC 2104},
+  year         = {1997},
+  month        = feb,
+  publisher    = {Internet Engineering Task Force},
+  doi          = {10.17487/RFC2104}
+}
+
 @inproceedings{blake3-2020,
   author    = {Jack O'Connor and Jean-Philippe Aumasson and Samuel Neves and Zooko Wilcox-O'Hearn},
   title     = {{BLAKE3}: One Function, Fast Everywhere},
@@ -481,7 +664,6 @@
   url       = {https://eprint.iacr.org/2020/1235}
 }
 
-% Keccak / SHA-3 standard (FIPS 202)
 @misc{nist-fips-202-2015,
   author       = {{National Institute of Standards and Technology}},
   title        = {{SHA-3} Standard: Permutation-Based Hash and Extendable-Output Functions},
@@ -490,4 +672,65 @@
   month        = aug,
   publisher    = {U.S. Department of Commerce},
   doi          = {10.6028/NIST.FIPS.202}
+}
+
+@online{rust-rand-crate,
+  author = {{The Rand Project Developers}},
+  title  = {rand: {Rust} Random Number Generation},
+  year   = {2024},
+  url    = {https://crates.io/crates/rand}
+}
+
+@book{efron1993introduction,
+  author    = {Bradley Efron and Robert J. Tibshirani},
+  title     = {An Introduction to the Bootstrap},
+  publisher = {Chapman \& Hall/{CRC}},
+  address   = {New York},
+  year      = {1993},
+  doi       = {10.1201/9780429246593}
+}
+
+
+% ========================================================================
+% Experimental Results and Analysis
+% ========================================================================
+@techreport{intel-sha-ni,
+  author      = {Sean Gulley and Vinodh Gopal and Kirk Yap and Wajdi Feghali and Jim Guilford and Gil Wolrich},
+  title       = {{Intel SHA Extensions}: New Instructions Supporting the Secure Hash Algorithm on {Intel} Architecture Processors},
+  institution = {Intel Corporation},
+  year        = {2013},
+  month       = jul,
+  url         = {https://www.intel.com/content/dam/develop/external/us/en/documents/intel-sha-extensions-white-paper-402097.pdf}
+}
+
+@online{aws-graviton,
+  author = {{Amazon Web Services}},
+  title  = {{AWS Graviton} Processors},
+  year   = {2024},
+  url    = {https://aws.amazon.com/ec2/graviton/}
+}
+
+@online{google-axion,
+  author = {{Google Cloud}},
+  title  = {{Google Axion} Processors},
+  year   = {2024},
+  url    = {https://cloud.google.com/blog/products/compute/introducing-googles-new-arm-based-cpu}
+}
+
+@online{arm-crypto-ext,
+  author = {{Arm Limited}},
+  title  = {{ARMv8-A} Cryptography Extension},
+  year   = {2024},
+  url    = {https://developer.arm.com/documentation/101432/latest/Functional-description/About-the-Cryptographic-Extension}
+}
+
+
+% ========================================================================
+% Discussion > Limitations
+% ========================================================================
+@online{pqcrypto-rust-crate,
+  author = {{The pqcrypto Authors}},
+  title  = {pqcrypto-falcon: {Rust} Bindings to {PQClean}'s {Falcon} Implementation},
+  year   = {2024},
+  url    = {https://crates.io/crates/pqcrypto-falcon}
 }

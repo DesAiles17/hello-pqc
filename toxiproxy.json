@@ -1,0 +1,25 @@
+[
+  {
+    "name": "wan_simulation",
+    "listen": "0.0.0.0:8080",
+    "upstream": "api-gateway:3000",
+    "enabled": true,
+    "toxics": [
+      {
+        "type": "latency",
+        "toxicity": 1.0,
+        "attributes": {
+          "latency": 45,
+          "jitter": 5
+        }
+      },
+      {
+        "type": "bandwidth",
+        "toxicity": 1.0,
+        "attributes": {
+          "rate": 2048
+        }
+      }
+    ]
+  }
+]

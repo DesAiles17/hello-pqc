@@ -1,97 +1,100 @@
-\contentsline {section}{\numberline {1}Introduction}{7}{section.1}%
-\contentsline {subsection}{\numberline {1.1}Problem Statement}{7}{subsection.1.1}%
-\contentsline {subsection}{\numberline {1.2}Research Questions}{8}{subsection.1.2}%
-\contentsline {subsection}{\numberline {1.3}Aims and Objectives}{8}{subsection.1.3}%
-\contentsline {subsection}{\numberline {1.4}Scope and Limitations}{9}{subsection.1.4}%
-\contentsline {subsection}{\numberline {1.5}Report Structure}{10}{subsection.1.5}%
-\contentsline {section}{\numberline {2}Literature Review}{11}{section.2}%
-\contentsline {subsection}{\numberline {2.1}Introduction}{11}{subsection.2.1}%
-\contentsline {subsection}{\numberline {2.2}The Quantum Threat to Classical Cryptography}{11}{subsection.2.2}%
-\contentsline {subsection}{\numberline {2.3}Harvest Now, Decrypt Later Risk}{12}{subsection.2.3}%
-\contentsline {subsection}{\numberline {2.4}Current State of the Cryptographic Standards}{12}{subsection.2.4}%
-\contentsline {subsection}{\numberline {2.5}The NIST Post-Quantum Cryptography Standardisation Programme}{13}{subsection.2.5}%
-\contentsline {subsection}{\numberline {2.6}Post-Quantum Algorithm Families}{14}{subsection.2.6}%
-\contentsline {subsubsection}{\numberline {2.6.1}Lattice-Based Cryptography: ML-KEM and ML-DSA}{14}{subsubsection.2.6.1}%
-\contentsline {subsubsection}{\numberline {2.6.2}Hash-Based Signatures: SLH-DSA}{15}{subsubsection.2.6.2}%
-\contentsline {subsubsection}{\numberline {2.6.3}NTRU-Based Signatures: Falcon and FN-DSA}{15}{subsubsection.2.6.3}%
-\contentsline {subsection}{\numberline {2.7}Secure File Handling in Cloud Workflows}{16}{subsection.2.7}%
-\contentsline {subsection}{\numberline {2.8}Summary and Research Gaps}{17}{subsection.2.8}%
-\contentsline {section}{\numberline {3}Methodology}{19}{section.3}%
-\contentsline {subsection}{\numberline {3.1}Research Design and Approach}{19}{subsection.3.1}%
-\contentsline {subsection}{\numberline {3.2}Workflow Exploration and Baseline Development}{20}{subsection.3.2}%
-\contentsline {subsection}{\numberline {3.3}Storage Backend Selection}{21}{subsection.3.3}%
-\contentsline {subsection}{\numberline {3.4}Manifest Design and Determinism}{22}{subsection.3.4}%
-\contentsline {subsection}{\numberline {3.5}Microservice Architecture Decision}{22}{subsection.3.5}%
-\contentsline {subsection}{\numberline {3.6}User Interface Decisions}{23}{subsection.3.6}%
-\contentsline {subsection}{\numberline {3.7}Verification Framework Design}{24}{subsection.3.7}%
-\contentsline {subsection}{\numberline {3.8}Security Hardening}{25}{subsection.3.8}%
-\contentsline {subsection}{\numberline {3.9}Algorithm Selection and Coverage}{27}{subsection.3.9}%
-\contentsline {paragraph}{Phase\nobreakspace {}1: Broad coverage.}{27}{section*.6}%
-\contentsline {paragraph}{Phase\nobreakspace {}2: Hybrid benchmarking.}{28}{section*.7}%
-\contentsline {subsection}{\numberline {3.10}Benchmarking Framework Design}{28}{subsection.3.10}%
-\contentsline {paragraph}{Warm-up runs.}{28}{section*.8}%
-\contentsline {paragraph}{Measured runs.}{29}{section*.9}%
-\contentsline {paragraph}{Seeded randomisation.}{29}{section*.10}%
-\contentsline {paragraph}{Inter-run delay.}{29}{section*.11}%
-\contentsline {paragraph}{Storage state modes.}{29}{section*.12}%
-\contentsline {paragraph}{Campaign orchestration.}{29}{section*.13}%
-\contentsline {subsection}{\numberline {3.11}Dataset Design}{30}{subsection.3.11}%
-\contentsline {subsection}{\numberline {3.12}Telemetry and Metrics Collection}{30}{subsection.3.12}%
-\contentsline {paragraph}{Client-side timings.}{30}{section*.14}%
-\contentsline {paragraph}{Server-side timings.}{31}{section*.15}%
-\contentsline {paragraph}{Artifact metrics.}{31}{section*.16}%
-\contentsline {subsection}{\numberline {3.13}Statistical Analysis Methodology}{31}{subsection.3.13}%
-\contentsline {paragraph}{Central tendency.}{31}{section*.17}%
-\contentsline {paragraph}{Dispersion.}{32}{section*.18}%
-\contentsline {paragraph}{Confidence intervals.}{32}{section*.19}%
-\contentsline {paragraph}{Ratio analysis.}{32}{section*.20}%
-\contentsline {paragraph}{Quality gates.}{32}{section*.21}%
-\contentsline {paragraph}{Output artefacts.}{33}{section*.22}%
-\contentsline {section}{\numberline {4}Experimental Results and Analysis}{33}{section.4}%
-\contentsline {subsection}{\numberline {4.1}Campaign Provenance and Quality}{34}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}Hash Algorithm Performance}{35}{subsection.4.2}%
-\contentsline {subsection}{\numberline {4.3}Signing Performance}{36}{subsection.4.3}%
-\contentsline {paragraph}{Falcon (FN-DSA) outperforms ECDSA.}{37}{section*.23}%
-\contentsline {paragraph}{ML-DSA is in the same order of magnitude as ECDSA.}{37}{section*.24}%
-\contentsline {paragraph}{RSA-PSS is the slowest classical scheme by a wide margin.}{37}{section*.25}%
-\contentsline {paragraph}{SLH-DSA is unusable for online workloads.}{38}{section*.26}%
-\contentsline {subsection}{\numberline {4.4}Verification Performance}{38}{subsection.4.4}%
-\contentsline {subsection}{\numberline {4.5}Artifact Overhead}{39}{subsection.4.5}%
-\contentsline {subsection}{\numberline {4.6}End-to-End Workflow Latency}{41}{subsection.4.6}%
-\contentsline {paragraph}{Finding 1: FN-DSA and ML-DSA are faster than RSA-PSS end-to-end.}{41}{section*.27}%
-\contentsline {paragraph}{Finding 2: The network and I/O floor dominates at all but the smallest files.}{42}{section*.28}%
-\contentsline {paragraph}{Finding 3: SLH-DSA imposes prohibitive overhead for interactive use.}{43}{section*.29}%
-\contentsline {subsection}{\numberline {4.7}Cloud-Workflow Contextualisation}{43}{subsection.4.7}%
-\contentsline {paragraph}{Asymmetric read/write ratio.}{43}{section*.30}%
-\contentsline {paragraph}{Small-object prevalence.}{44}{section*.31}%
-\contentsline {paragraph}{Signing-cost impact on concurrent capacity.}{44}{section*.32}%
-\contentsline {paragraph}{Niche validity of SLH-DSA.}{44}{section*.33}%
-\contentsline {subsection}{\numberline {4.8}Phase\nobreakspace {}2 Carry-Forward Selection}{45}{subsection.4.8}%
-\contentsline {subsection}{\numberline {4.9}Threats to Validity}{47}{subsection.4.9}%
-\contentsline {paragraph}{Internal validity --- localhost environment.}{47}{section*.37}%
-\contentsline {paragraph}{External validity --- generalisation to cloud hardware.}{48}{section*.38}%
-\contentsline {paragraph}{Construct validity --- warm storage state only.}{48}{section*.39}%
-\contentsline {paragraph}{Construct validity --- single campaign repeat.}{48}{section*.40}%
-\contentsline {paragraph}{Conclusion validity --- Phase\nobreakspace {}2 not executed.}{49}{section*.41}%
-\contentsline {subsection}{\numberline {4.10}Summary}{49}{subsection.4.10}%
-\contentsline {section}{\numberline {5}Discussion and Conclusion}{50}{section.5}%
-\contentsline {subsection}{\numberline {5.1}Answering the Research Questions}{50}{subsection.5.1}%
-\contentsline {paragraph}{RQ1: What is the performance overhead of post-quantum signature schemes in a complete end-to-end file-processing lifecycle?}{50}{section*.42}%
-\contentsline {paragraph}{RQ2: How does hybrid signing affect latency and throughput?}{50}{section*.43}%
-\contentsline {paragraph}{RQ3: What architectural harnesses are required for reproducible measurement?}{51}{section*.44}%
-\contentsline {paragraph}{RQ4: What are the security implications of integrating PQC into a backend microservice architecture?}{51}{section*.45}%
-\contentsline {subsection}{\numberline {5.2}Synthesis: What This Means for Practitioners}{52}{subsection.5.2}%
-\contentsline {paragraph}{The performance case for PQC migration is stronger than expected.}{52}{section*.46}%
-\contentsline {paragraph}{Storage amplification is the real PQC cost, not latency.}{52}{section*.47}%
-\contentsline {paragraph}{The hybrid transition path is viable.}{52}{section*.48}%
-\contentsline {subsection}{\numberline {5.3}Contributions}{53}{subsection.5.3}%
-\contentsline {subsection}{\numberline {5.4}Limitations}{53}{subsection.5.4}%
-\contentsline {subsection}{\numberline {5.5}Future Work}{54}{subsection.5.5}%
-\contentsline {paragraph}{Cloud-native deployment.}{54}{section*.49}%
-\contentsline {paragraph}{Cold-mode benchmarking.}{54}{section*.50}%
-\contentsline {paragraph}{Higher security parameter sets.}{55}{section*.51}%
-\contentsline {paragraph}{Key Management Service integration.}{55}{section*.52}%
-\contentsline {paragraph}{SLH-DSA for archival signing.}{55}{section*.53}%
-\contentsline {subsection}{\numberline {5.6}Concluding Remarks}{55}{subsection.5.6}%
-\contentsline {section}{Appendices}{61}{section*.55}%
-\contentsline {section}{\numberline {A}Supplementary Submission Material}{61}{appendix.a.A}%
+\contentsline {section}{Acknowledgements}{ii}{section*.1}%
+\contentsline {section}{\numberline {1}Introduction}{1}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Problem Statement}{1}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Research Questions}{2}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Aims and Objectives}{2}{subsection.1.3}%
+\contentsline {subsection}{\numberline {1.4}Scope}{3}{subsection.1.4}%
+\contentsline {subsection}{\numberline {1.5}Limitations}{3}{subsection.1.5}%
+\contentsline {subsection}{\numberline {1.6}Report Structure}{4}{subsection.1.6}%
+\contentsline {section}{\numberline {2}Literature Review}{5}{section.2}%
+\contentsline {subsection}{\numberline {2.1}The Quantum Threat and Threat Models}{5}{subsection.2.1}%
+\contentsline {subsubsection}{\numberline {2.1.1}Harvest Now, Decrypt Later Risk}{6}{subsubsection.2.1.1}%
+\contentsline {subsubsection}{\numberline {2.1.2}Current State of the Cryptographic Standards}{6}{subsubsection.2.1.2}%
+\contentsline {subsection}{\numberline {2.2}NIST PQC Standardisation}{7}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Post-Quantum Algorithm Families}{7}{subsection.2.3}%
+\contentsline {subsubsection}{\numberline {2.3.1}ML-KEM and ML-DSA - Lattice-Based Signatures}{8}{subsubsection.2.3.1}%
+\contentsline {subsubsection}{\numberline {2.3.2}SLH-DSA - Hash-Based Signature}{8}{subsubsection.2.3.2}%
+\contentsline {subsubsection}{\numberline {2.3.3}FN-DSA - NTRU-Based Signature}{9}{subsubsection.2.3.3}%
+\contentsline {subsection}{\numberline {2.4}File Handling in Cloud}{9}{subsection.2.4}%
+\contentsline {subsection}{\numberline {2.5}Related Work in System-Level Performance Verification}{11}{subsection.2.5}%
+\contentsline {subsection}{\numberline {2.6}Summary and Research Gaps}{12}{subsection.2.6}%
+\contentsline {section}{\numberline {3}Methodology}{13}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Research Design and Approach}{13}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Workflow Design}{14}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Storage Backend}{15}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Manifest Design}{16}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Microservice Architecture Decision}{16}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}User Interface}{17}{subsection.3.6}%
+\contentsline {subsection}{\numberline {3.7}Verification Service Design}{18}{subsection.3.7}%
+\contentsline {subsection}{\numberline {3.8}Security Hardening and Threat Modelling}{19}{subsection.3.8}%
+\contentsline {subsection}{\numberline {3.9}Algorithm Selection}{20}{subsection.3.9}%
+\contentsline {subsubsection}{\numberline {3.9.1}Phase 1: Baseline Establishment}{21}{subsubsection.3.9.1}%
+\contentsline {subsubsection}{\numberline {3.9.2}Hash Algorithms}{21}{subsubsection.3.9.2}%
+\contentsline {subsubsection}{\numberline {3.9.3}Phase 2: Hybrid Benchmarking}{21}{subsubsection.3.9.3}%
+\contentsline {subsection}{\numberline {3.10}Benchmarking Framework Design}{22}{subsection.3.10}%
+\contentsline {subsubsection}{\numberline {3.10.1}Experimental design}{22}{subsubsection.3.10.1}%
+\contentsline {subsubsection}{\numberline {3.10.2}Warm-up runs}{22}{subsubsection.3.10.2}%
+\contentsline {subsubsection}{\numberline {3.10.3}Measured runs}{23}{subsubsection.3.10.3}%
+\contentsline {subsubsection}{\numberline {3.10.4}Seeded randomisation}{23}{subsubsection.3.10.4}%
+\contentsline {subsubsection}{\numberline {3.10.5}Inter-run delay}{23}{subsubsection.3.10.5}%
+\contentsline {subsubsection}{\numberline {3.10.6}Storage state modes}{23}{subsubsection.3.10.6}%
+\contentsline {subsubsection}{\numberline {3.10.7}Campaign orchestration}{23}{subsubsection.3.10.7}%
+\contentsline {subsection}{\numberline {3.11}Dataset Design}{24}{subsection.3.11}%
+\contentsline {subsection}{\numberline {3.12}Telemetry and Metrics Collection}{24}{subsection.3.12}%
+\contentsline {subsubsection}{\numberline {3.12.1}Client-side timings}{25}{subsubsection.3.12.1}%
+\contentsline {subsubsection}{\numberline {3.12.2}Server-side timings}{25}{subsubsection.3.12.2}%
+\contentsline {subsubsection}{\numberline {3.12.3}Artefact metrics}{25}{subsubsection.3.12.3}%
+\contentsline {subsection}{\numberline {3.13}Statistical Analysis Methodology}{26}{subsection.3.13}%
+\contentsline {subsubsection}{\numberline {3.13.1}Central tendency}{26}{subsubsection.3.13.1}%
+\contentsline {subsubsection}{\numberline {3.13.2}Dispersion}{26}{subsubsection.3.13.2}%
+\contentsline {subsubsection}{\numberline {3.13.3}Confidence intervals}{26}{subsubsection.3.13.3}%
+\contentsline {subsubsection}{\numberline {3.13.4}Ratio analysis}{26}{subsubsection.3.13.4}%
+\contentsline {subsubsection}{\numberline {3.13.5}Quality gates}{27}{subsubsection.3.13.5}%
+\contentsline {section}{\numberline {4}Experimental Results and Analysis}{28}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Campaign Provenance and Quality}{28}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Hash Algorithm Performance}{29}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Signing Performance}{30}{subsection.4.3}%
+\contentsline {subsubsection}{\numberline {4.3.1}Falcon (FN-DSA) outperforms ECDSA}{31}{subsubsection.4.3.1}%
+\contentsline {subsubsection}{\numberline {4.3.2}ML-DSA is in the same order of magnitude as ECDSA}{31}{subsubsection.4.3.2}%
+\contentsline {subsubsection}{\numberline {4.3.3}RSA-PSS is by far the slowest classical signing algorithm }{32}{subsubsection.4.3.3}%
+\contentsline {subsubsection}{\numberline {4.3.4}SLH-DSA is unusable for online workloads}{32}{subsubsection.4.3.4}%
+\contentsline {subsection}{\numberline {4.4}Verification Performance}{32}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}Artifact Overhead}{33}{subsection.4.5}%
+\contentsline {subsection}{\numberline {4.6}End-to-End Latency}{35}{subsection.4.6}%
+\contentsline {subsubsection}{\numberline {4.6.1}Finding 1: FN-DSA and ML-DSA are faster than RSA-PSS end-to-end}{36}{subsubsection.4.6.1}%
+\contentsline {subsubsection}{\numberline {4.6.2}Finding 2: The network and I/O floor dominate at all but the smallest files}{36}{subsubsection.4.6.2}%
+\contentsline {subsubsection}{\numberline {4.6.3}Finding 3: SLH-DSA imposes prohibitive overhead for interactive use}{37}{subsubsection.4.6.3}%
+\contentsline {subsection}{\numberline {4.7}Cost of Hybrid vs Classical}{37}{subsection.4.7}%
+\contentsline {subsection}{\numberline {4.8}Bottleneck Analysis}{38}{subsection.4.8}%
+\contentsline {subsection}{\numberline {4.9}Algorithm Tradeoffs}{39}{subsection.4.9}%
+\contentsline {subsection}{\numberline {4.10}Primary Performance Analysis}{40}{subsection.4.10}%
+\contentsline {subsection}{\numberline {4.11}Infrastructure and Scalability}{41}{subsection.4.11}%
+\contentsline {subsection}{\numberline {4.12}Practical Scenarios}{43}{subsection.4.12}%
+\contentsline {subsection}{\numberline {4.13}Phase 2 Carry-Forward Selection}{43}{subsection.4.13}%
+\contentsline {subsubsection}{\numberline {4.13.1}Hash algorithms}{44}{subsubsection.4.13.1}%
+\contentsline {subsubsection}{\numberline {4.13.2}Classical signature schemes}{44}{subsubsection.4.13.2}%
+\contentsline {subsubsection}{\numberline {4.13.3}PQC schemes}{45}{subsubsection.4.13.3}%
+\contentsline {subsection}{\numberline {4.14}Threats to Validity}{46}{subsection.4.14}%
+\contentsline {subsubsection}{\numberline {4.14.1}Localhost environment}{46}{subsubsection.4.14.1}%
+\contentsline {subsubsection}{\numberline {4.14.2}Generalisation to cloud hardware}{46}{subsubsection.4.14.2}%
+\contentsline {subsubsection}{\numberline {4.14.3}Warm storage state only}{47}{subsubsection.4.14.3}%
+\contentsline {subsection}{\numberline {4.15}Summary}{47}{subsection.4.15}%
+\contentsline {section}{\numberline {5}Discussion}{49}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Answering the Research Questions}{49}{subsection.5.1}%
+\contentsline {subsubsection}{\numberline {5.1.1}RQ1: What is the performance cost of post-quantum and hybrid signature schemes compared to classical signatures in a complete end-to-end file-processing lifecycle?}{49}{subsubsection.5.1.1}%
+\contentsline {subsubsection}{\numberline {5.1.2}RQ2: What is the proven end-to-end performance footprint of deploying hybrid signature architectures, and what do these findings show for the viability of hybrid transition strategies?}{50}{subsubsection.5.1.2}%
+\contentsline {subsubsection}{\numberline {5.1.3}RQ3: What reproducibility criteria must a system-level cryptographic benchmark satisfy, and does the harness developed in this study meet them?}{50}{subsubsection.5.1.3}%
+\contentsline {subsubsection}{\numberline {5.1.4}RQ4: What are the security implications and trade-offs of integrating PQC and hybrid signatures into an existing backend microservice architecture?}{50}{subsubsection.5.1.4}%
+\contentsline {subsection}{\numberline {5.2}What This Means for Practitioners}{51}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Balancing Algorithm Trade-offs}{52}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Contributions}{53}{subsection.5.4}%
+\contentsline {subsection}{\numberline {5.5}Limitations}{53}{subsection.5.5}%
+\contentsline {subsection}{\numberline {5.6}Future Work}{54}{subsection.5.6}%
+\contentsline {subsubsection}{\numberline {5.6.1}Cloud-native deployment}{54}{subsubsection.5.6.1}%
+\contentsline {subsubsection}{\numberline {5.6.2}Cold-mode benchmarking}{54}{subsubsection.5.6.2}%
+\contentsline {subsubsection}{\numberline {5.6.3}Higher security parameter sets}{54}{subsubsection.5.6.3}%
+\contentsline {subsubsection}{\numberline {5.6.4}Key Management Service integration}{55}{subsubsection.5.6.4}%
+\contentsline {subsubsection}{\numberline {5.6.5}SLH-DSA for archival signing}{55}{subsubsection.5.6.5}%
+\contentsline {section}{\numberline {6}Conclusion}{56}{section.6}%
+\contentsline {section}{Appendices}{64}{section*.26}%
+\contentsline {section}{\numberline {A}Supplementary Submission Material}{64}{appendix.a.A}%

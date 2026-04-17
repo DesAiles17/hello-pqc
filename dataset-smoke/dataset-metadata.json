@@ -1,0 +1,20 @@
+{
+  "layout_version": 2,
+  "seed": "pqc-hons-benchmark-smoke-v1:warm",
+  "files_per_bucket": 4,
+  "file_types": [
+    "bin",
+    "txt",
+    "json",
+    "csv",
+    "md"
+  ],
+  "bucket_upper_bounds": {
+    "10KB": 10240,
+    "100KB": 102400,
+    "1MB": 1048576,
+    "10MB": 10485760,
+    "50MB": 52428800
+  },
+  "size_selection_mode": "exact_bucket_size"
+}

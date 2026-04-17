@@ -1,4 +1,4 @@
-\begin{thebibliography}{49}
+\begin{thebibliography}{79}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -30,9 +30,24 @@
 \newblock Client-side encryption, 2024{\natexlab{d}}.
 \newblock URL \url{https://docs.aws.amazon.com/kms/latest/cryptographic-details/client-side-encryption.html}.
 
+\bibitem[{Amazon Web Services}(2024{\natexlab{e}})]{aws-graviton}
+{Amazon Web Services}.
+\newblock {AWS Graviton} processors, 2024{\natexlab{e}}.
+\newblock URL \url{https://aws.amazon.com/ec2/graviton/}.
+
+\bibitem[{Arm Limited}(2024)]{arm-crypto-ext}
+{Arm Limited}.
+\newblock {ARMv8-A} cryptography extension, 2024.
+\newblock URL \url{https://developer.arm.com/documentation/101432/latest/Functional-description/About-the-Cryptographic-Extension}.
+
 \bibitem[Barker and Roginsky(2019)]{nist-sp800-131a-2019}
 Elaine Barker and Allen Roginsky.
 \newblock Transitioning the use of cryptographic algorithms and key lengths, March 2019.
+
+\bibitem[Bishop and Dilger(1996)]{bishop1996toctou}
+Matt Bishop and Michael Dilger.
+\newblock Checking for race conditions in file accesses.
+\newblock \emph{Computing Systems}, 9\penalty0 (2):\penalty0 131--152, 1996.
 
 \bibitem[Bormann and Hoffman(2020)]{rfc8949-cbor}
 C.~Bormann and P.~Hoffman.
@@ -48,6 +63,28 @@ Wouter Castryck and Thomas Decru.
 Google Cloud.
 \newblock Google cloud {KMS} now supports quantum-safe digital signatures, February 2025.
 \newblock URL \url{https://cloud.google.com/blog/products/identity-security/google-cloud-kms-now-supports-quantum-safe-digital-signatures}.
+
+\bibitem[{Docker, Inc.}(2024)]{docker-compose-docs}
+{Docker, Inc.}
+\newblock {Docker Compose} overview, 2024.
+\newblock URL \url{https://docs.docker.com/compose/}.
+
+\bibitem[Efron(1979)]{efron1979bootstrap}
+Bradley Efron.
+\newblock Bootstrap methods: Another look at the jackknife.
+\newblock \emph{The Annals of Statistics}, 7\penalty0 (1):\penalty0 1--26, 1979.
+\newblock \doi{10.1214/aos/1176344552}.
+
+\bibitem[Efron and Tibshirani(1993)]{efron1993introduction}
+Bradley Efron and Robert~J. Tibshirani.
+\newblock \emph{An Introduction to the Bootstrap}.
+\newblock Chapman \& Hall/{CRC}, New York, 1993.
+\newblock \doi{10.1201/9780429246593}.
+
+\bibitem[{Evan You and Vite Contributors}(2024)]{vite-docs}
+{Evan You and Vite Contributors}.
+\newblock Vite: Next generation frontend tooling, 2024.
+\newblock URL \url{https://vitejs.dev/}.
 
 \bibitem[Fouque et~al.(2020)Fouque, Hoffstein, Kirchner, Lyubashevsky, Pornin, Prest, Pulles, van Vredendaal, Whyte, and Zhang]{fouque2020fn_dsa}
 Pierre-Alain Fouque, Jeffrey Hoffstein, Paul Kirchner, Vadim Lyubashevsky, Thomas Pornin, Thomas Prest, Thomas Pulles, Christine van Vredendaal, William Whyte, and Zhenfei Zhang.
@@ -67,10 +104,15 @@ Craig Gidney and Martin Ekerå.
 \newblock \emph{Quantum}, 5:\penalty0 433, 2021.
 \newblock \doi{10.22331/q-2021-04-15-433}.
 
-\bibitem[{Google Cloud}(2024)]{Goo24}
+\bibitem[{Google Cloud}(2024{\natexlab{a}})]{Goo24}
 {Google Cloud}.
-\newblock Envelope encryption, 2024.
+\newblock Envelope encryption, 2024{\natexlab{a}}.
 \newblock URL \url{https://cloud.google.com/kms/docs/envelope-encryption}.
+
+\bibitem[{Google Cloud}(2024{\natexlab{b}})]{google-axion}
+{Google Cloud}.
+\newblock {Google Axion} processors, 2024{\natexlab{b}}.
+\newblock URL \url{https://cloud.google.com/blog/products/compute/introducing-googles-new-arm-based-cpu}.
 
 \bibitem[Group(2025)]{thales-mldsa-2025}
 Thales Group.
@@ -83,6 +125,12 @@ Lov~K. Grover.
 \newblock In \emph{Proceedings of the 28th Annual ACM Symposium on Theory of Computing}, pages 212--219, 1996.
 \newblock \doi{10.1145/237814.237866}.
 
+\bibitem[Gulley et~al.(2013)Gulley, Gopal, Yap, Feghali, Guilford, and Wolrich]{intel-sha-ni}
+Sean Gulley, Vinodh Gopal, Kirk Yap, Wajdi Feghali, Jim Guilford, and Gil Wolrich.
+\newblock {Intel SHA Extensions}: New instructions supporting the secure hash algorithm on {Intel} architecture processors.
+\newblock Technical report, Intel Corporation, July 2013.
+\newblock URL \url{https://www.intel.com/content/dam/develop/external/us/en/documents/intel-sha-extensions-white-paper-402097.pdf}.
+
 \bibitem[HashiCorp(2025)]{hashicorp-hndl-2025}
 HashiCorp.
 \newblock Harvest now, decrypt later: Why today's encrypted data isn't safe forever, 2025.
@@ -94,16 +142,39 @@ Jeffrey Hoffstein, Jill Pipher, and Joseph~H. Silverman.
 \newblock In \emph{Algorithmic Number Theory -- {ANTS-III} 1998}, volume 1423 of \emph{Lecture Notes in Computer Science}, pages 267--288, Berlin, 1998. Springer.
 \newblock \doi{10.1007/BFb0054868}.
 
+\bibitem[House(2022)]{nsm-10-2022}
+The~White House.
+\newblock National security memorandum on promoting united states leadership in quantum computing while mitigating risks to vulnerable cryptographic systems, May 2022.
+\newblock URL \url{https://www.whitehouse.gov/briefing-room/statements-releases/2022/05/04/national-security-memorandum-on-promoting-united-states-leadership-in-quantum-computing-while-mitigating-risks-to-vulnerable-cryptographic-systems/}.
+\newblock NSM-10.
+
 \bibitem[Huelsing et~al.(2018)Huelsing, Butin, Gazdag, Rijneveld, and Mohaisen]{rfc8391-xmss}
 A.~Huelsing, D.~Butin, S.~Gazdag, J.~Rijneveld, and A.~Mohaisen.
 \newblock {XMSS}: extended merkle signature scheme.
 \newblock RFC 8391, May 2018.
+
+\bibitem[Johnson et~al.(2001)Johnson, Menezes, and Vanstone]{johnson2001ecdsa}
+Don Johnson, Alfred Menezes, and Scott Vanstone.
+\newblock The elliptic curve digital signature algorithm ({ECDSA}).
+\newblock \emph{International Journal of Information Security}, 1\penalty0 (1):\penalty0 36--63, 2001.
+\newblock \doi{10.1007/s102070100002}.
 
 \bibitem[Kent and Souppaya(2006)]{KS06}
 Karen Kent and Murugiah Souppaya.
 \newblock Guide to computer security log management.
 \newblock {NIST} Special Publication 800-92, September 2006.
 \newblock URL \url{https://csrc.nist.gov/pubs/sp/800/92/final}.
+
+\bibitem[Kocher(1996)]{kocher1996timing}
+Paul~C. Kocher.
+\newblock Timing attacks on implementations of {Diffie--Hellman}, {RSA}, {DSS}, and other systems.
+\newblock In \emph{Advances in Cryptology -- {CRYPTO} 1996}, volume 1109 of \emph{Lecture Notes in Computer Science}, pages 104--113. Springer, 1996.
+\newblock \doi{10.1007/3-540-68697-5_9}.
+
+\bibitem[Krawczyk et~al.(1997)Krawczyk, Bellare, and Canetti]{rfc2104-hmac}
+H.~Krawczyk, M.~Bellare, and R.~Canetti.
+\newblock {HMAC}: Keyed-hashing for message authentication.
+\newblock RFC 2104, February 1997.
 
 \bibitem[Lamport(1979)]{lamport1979}
 Leslie Lamport.
@@ -127,10 +198,21 @@ J.~Massimo et~al.
 \newblock URL \url{https://datatracker.ietf.org/doc/draft-ietf-lamps-kyber-certificates/}.
 \newblock IETF Internet-Draft.
 
+\bibitem[Matsakis and Klock(2014)]{matsakis2014rust}
+Nicholas~D. Matsakis and Felix~S. Klock.
+\newblock The {Rust} language.
+\newblock In \emph{Proceedings of the 2014 {ACM} {SIGAda} Annual Conference on High Integrity Language Technology}, pages 103--104. {ACM}, 2014.
+\newblock \doi{10.1145/2692956.2663188}.
+
 \bibitem[McGrew et~al.(2019)McGrew, Curcio, and Fluhrer]{rfc8554-lms}
 D.~McGrew, M.~Curcio, and S.~Fluhrer.
 \newblock Leighton-micali hash-based signatures.
 \newblock RFC 8554, April 2019.
+
+\bibitem[Merkel(2014)]{merkel2014docker}
+Dirk Merkel.
+\newblock Docker: Lightweight {Linux} containers for consistent development and deployment.
+\newblock \emph{Linux Journal}, 2014\penalty0 (239):\penalty0 2, 2014.
 
 \bibitem[Merkle(1989)]{merkle1989}
 Ralph~C. Merkle.
@@ -138,10 +220,20 @@ Ralph~C. Merkle.
 \newblock In \emph{Advances in Cryptology -- {CRYPTO} 1989}, volume 435 of \emph{Lecture Notes in Computer Science}, pages 218--238, Berlin, 1989. Springer.
 \newblock \doi{10.1007/0-387-34805-0_21}.
 
+\bibitem[{Meta Platforms, Inc.}(2024)]{react-docs}
+{Meta Platforms, Inc.}
+\newblock React: The library for web and native user interfaces, 2024.
+\newblock URL \url{https://react.dev/}.
+
 \bibitem[{MinIO, Inc.}(2024)]{minio-docs}
 {MinIO, Inc.}
 \newblock {MinIO} object storage for {Linux}, 2024.
 \newblock URL \url{https://min.io/docs/minio/linux/index.html}.
+
+\bibitem[{MinIO, Inc.}(2026)]{minio-2025}
+{MinIO, Inc.}
+\newblock Minio archiving open source repository, February 2026.
+\newblock URL \url{https://github.com/minio/minio}.
 
 \bibitem[Mosca(2018)]{mosca2018}
 Michele Mosca.
@@ -153,6 +245,11 @@ Michele Mosca.
 {National Institute of Standards and Technology}.
 \newblock {SHA-3} standard: Permutation-based hash and extendable-output functions.
 \newblock FIPS PUB 202, August 2015.
+
+\bibitem[{Nginx, Inc.}(2024)]{nginx-docs}
+{Nginx, Inc.}
+\newblock {Nginx} documentation, 2024.
+\newblock URL \url{https://nginx.org/en/docs/}.
 
 \bibitem[O'Connor et~al.(2020)O'Connor, Aumasson, Neves, and Wilcox-O'Hearn]{blake3-2020}
 Jack O'Connor, Jean-Philippe Aumasson, Samuel Neves, and Zooko Wilcox-O'Hearn.
@@ -224,17 +321,45 @@ National~Institute of~Standards and Technology.
 National~Institute of~Standards and Technology.
 \newblock Status report on the fourth round of the nist post-quantum cryptography standardization process, March 2025{\natexlab{b}}.
 
+\bibitem[Paquin et~al.(2020)Paquin, Stebila, and Tamvada]{paquin2020benchmarking}
+Christian Paquin, Douglas Stebila, and Goutam Tamvada.
+\newblock Benchmarking post-quantum cryptography in {TLS}.
+\newblock In \emph{Post-Quantum Cryptography -- {PQCrypto} 2020}, volume 12100 of \emph{Lecture Notes in Computer Science}, pages 72--91. Springer, 2020.
+\newblock \doi{10.1007/978-3-030-44223-1_5}.
+
+\bibitem[{PostgreSQL Global Development Group}(2024)]{postgresql-json-docs}
+{PostgreSQL Global Development Group}.
+\newblock {PostgreSQL} documentation: {JSON} types, 2024.
+\newblock URL \url{https://www.postgresql.org/docs/current/datatype-json.html}.
+
 \bibitem[Preskill(2018)]{preskill2018}
 John Preskill.
 \newblock Quantum computing in the {NISQ} era and beyond.
 \newblock \emph{Quantum}, 2:\penalty0 79, 2018.
 \newblock \doi{10.22331/q-2018-08-06-79}.
 
+\bibitem[{Red Sift}(2026)]{redsift-pqc-progress-2026}
+{Red Sift}.
+\newblock State of post-quantum cryptography in pki, 2026.
+\newblock URL \url{https://redsift.com/resources/post-quantum-pki-progress}.
+
 \bibitem[Regev(2009)]{regev2009}
 Oded Regev.
 \newblock On lattices, learning with errors, random linear codes, and cryptography.
 \newblock \emph{Journal of the ACM}, 56\penalty0 (6):\penalty0 34:1--34:40, 2009.
 \newblock \doi{10.1145/1568318.1568324}.
+
+\bibitem[Rivest et~al.(1978)Rivest, Shamir, and Adleman]{rivest1978rsa}
+Ronald~L. Rivest, Adi Shamir, and Leonard Adleman.
+\newblock A method for obtaining digital signatures and public-key cryptosystems.
+\newblock \emph{Communications of the {ACM}}, 21\penalty0 (2):\penalty0 120--126, 1978.
+\newblock \doi{10.1145/359340.359342}.
+
+\bibitem[Sandhu et~al.(1996)Sandhu, Coyne, Feinstein, and Youman]{sandhu1996rbac}
+Ravi~S. Sandhu, Edward~J. Coyne, Hal~L. Feinstein, and Charles~E. Youman.
+\newblock Role-based access control models.
+\newblock \emph{{IEEE} Computer}, 29\penalty0 (2):\penalty0 38--47, 1996.
+\newblock \doi{10.1109/2.485845}.
 
 \bibitem[Sectigo(2025)]{sectigo-hndl-2025}
 Sectigo.
@@ -250,6 +375,44 @@ Amazon~Web Services.
 Peter~W. Shor.
 \newblock Polynomial-time algorithms for prime factorization and discrete logarithms on a quantum computer.
 \newblock \emph{SIAM Journal on Computing}, 26\penalty0 (5):\penalty0 1484--1509, 1997.
+
+\bibitem[Shostack(2014)]{shostack2014threat}
+Adam Shostack.
+\newblock \emph{Threat Modeling: Designing for Security}.
+\newblock Wiley, Indianapolis, {IN}, 2014.
+
+\bibitem[Sikeridis et~al.(2020)Sikeridis, Kampanakis, and Devetsikiotis]{sikeridis2020assessing}
+Dimitrios Sikeridis, Panos Kampanakis, and Michael Devetsikiotis.
+\newblock Assessing the overhead of post-quantum cryptography in {TLS} 1.3 and {SSH}.
+\newblock In \emph{Proceedings of the 16th International Conference on Emerging Networking Experiments and Technologies ({CoNEXT} 2020)}, pages 149--156. {ACM}, 2020.
+\newblock \doi{10.1145/3386367.3431305}.
+
+\bibitem[Stebila and Mosca(2017)]{stebila2016oqs}
+Douglas Stebila and Michele Mosca.
+\newblock Post-quantum key exchange for the {Internet} and the {Open Quantum Safe} project.
+\newblock In \emph{Selected Areas in Cryptography -- {SAC} 2016}, volume 10532 of \emph{Lecture Notes in Computer Science}, pages 14--37. Springer, 2017.
+\newblock \doi{10.1007/978-3-319-69453-5_2}.
+
+\bibitem[{The pqcrypto Authors}(2024)]{pqcrypto-rust-crate}
+{The pqcrypto Authors}.
+\newblock pqcrypto-falcon: {Rust} bindings to {PQClean}'s {Falcon} implementation, 2024.
+\newblock URL \url{https://crates.io/crates/pqcrypto-falcon}.
+
+\bibitem[{The Rand Project Developers}(2024)]{rust-rand-crate}
+{The Rand Project Developers}.
+\newblock rand: {Rust} random number generation, 2024.
+\newblock URL \url{https://crates.io/crates/rand}.
+
+\bibitem[{The Rust Project Developers}(2024)]{rust-std-instant}
+{The Rust Project Developers}.
+\newblock std::time::instant --- {Rust} standard library, 2024.
+\newblock URL \url{https://doc.rust-lang.org/std/time/struct.Instant.html}.
+
+\bibitem[Turner(1986)]{turner1986token}
+Jonathan~S. Turner.
+\newblock New directions in communications (or which way to the information age?).
+\newblock \emph{{IEEE} Communications Magazine}, 24\penalty0 (10):\penalty0 8--15, 1986.
+\newblock \doi{10.1109/MCOM.1986.1092946}.
 
 \bibitem[{Yandex Cloud}(2024)]{Yan24}
 {Yandex Cloud}.
